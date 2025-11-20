@@ -11,6 +11,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/go-gota/gota/dataframe"
+	"golang.org/x/text/encoding/charmap"
 )
 
 type DataType int
@@ -27,6 +30,15 @@ const (
 	DespesasPagamentoListaBancos
 )
 
+const (
+	DespesasEmpenhoDataType                      = "_Despesas_Empenho.csv"
+	DespesasItemEmpenhoDataType                  = "_Despesas_Item_Empenho.csv"
+	DespesasLiquidacaoDataType                   = "_Despesas_Liquidacao.csv"
+	DespesasPagamentoDataType                    = "_Despesas_Pagamento.csv"
+	DespesasLiquidacaoEmpenhosImpactadosDataType = "_Despesas_Liquidacao_EmpenhosImpactados.csv"
+	DespesasPagamentoEmpenhosImpactadosDataType  = "_Despesas_Pagamento_EmpenhosImpactados.csv"
+)
+
 type DownloadResult struct {
 	Success    bool
 	OutputPath string
@@ -36,6 +48,30 @@ type ExtractionResult struct {
 	Success   bool
 	Data      DataType
 	OutputDir string
+}
+
+var dataTypeSuffix = map[DataType]string{
+	DespesasEmpenho:                      DespesasEmpenhoDataType,
+	DespesasItemEmpenho:                  DespesasItemEmpenhoDataType,
+	DespesasLiquidacao:                   DespesasLiquidacaoDataType,
+	DespesasPagamento:                    DespesasPagamentoDataType,
+	DespesasLiquidacaoEmpenhosImpactados: DespesasLiquidacaoEmpenhosImpactadosDataType,
+	DespesasPagamentoEmpenhosImpactados:  DespesasPagamentoEmpenhosImpactadosDataType,
+}
+
+type DayExtraction struct {
+	Date  string
+	Files map[DataType]string
+}
+
+func createDirsIfNotExist(dirPath string) error {
+	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+		err := os.MkdirAll(dirPath, os.ModePerm)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func fetchData(downloadUrl string, date string) DownloadResult {
@@ -133,10 +169,53 @@ func unzipFile(zipPath string, destDir string) ExtractionResult {
 	return ExtractionResult{Success: true, Data: DespesasEmpenho, OutputDir: destDir}
 }
 
+func buildFilesForDate(date, dir string) map[DataType]string {
+	m := make(map[DataType]string, len(dataTypeSuffix))
+
+	for dt, suffix := range dataTypeSuffix {
+		m[dt] = filepath.Join(dir, date+suffix)
+	}
+	return m
+}
+
+func BulkExtractCommitments(extractions []DayExtraction, unitCode []string) {
+	for _, e := range extractions {
+		if p, ok := e.Files[DespesasEmpenho]; ok {
+			file, err := os.Open(p)
+
+			if err != nil {
+				log.Fatalf("Failed to open file %s: %v", p, err)
+			}
+
+			func() {
+				defer file.Close()
+
+				decoded := charmap.Windows1252.NewDecoder().Reader(file)
+
+				df := dataframe.ReadCSV(decoded, dataframe.WithDelimiter(';'), dataframe.WithLazyQuotes(true))
+
+				fmt.Println(df)
+
+			}()
+
+		}
+
+	}
+}
+
 func main() {
-	url := "https://portaldatransparencia.gov.br/download-de-dados/despesas/20250101"
-	init_date := "2023-01-01"
-	end_date := "2023-04-30"
+	var url string
+	init_date := "2025-01-01"
+	end_date := "2025-01-02"
+	dirs := []string{"tmp/zips", "tmp/data"}
+
+	for _, dir := range dirs {
+		err := createDirsIfNotExist(dir)
+		if err != nil {
+			log.Fatalf("Failed to create directory %s: %v", dir, err)
+		}
+	}
+
 	init_parsed_date, err := time.Parse(time.DateOnly, init_date)
 	if err != nil {
 		log.Fatal(err)
@@ -146,6 +225,9 @@ func main() {
 		log.Fatal(err)
 	}
 
+	var extractions []DayExtraction
+	var mu sync.Mutex
+
 	var wg sync.WaitGroup
 
 	for !init_parsed_date.After(end_parsed_date) {
@@ -154,17 +236,32 @@ func main() {
 		wg.Add(1)
 		go func(u, d string) {
 			defer wg.Done()
-			output_path := fetchData(u, d)
-			if output_path.Success {
-				extraction_path := unzipFile(output_path.OutputPath, "tmp/data/despesas_"+d)
-				if extraction_path.Success {
-					fmt.Printf("Data successfully extracted to %s\n", extraction_path.OutputDir)
-				} else {
-					fmt.Println("Failed to extract data")
-				}
+			download := fetchData(u, d)
+
+			if !download.Success {
+				log.Printf("Download failed for date %s\n", d)
+				return
 			}
+
+			extraction := unzipFile(download.OutputPath, "tmp/data/despesas_"+d)
+
+			if !extraction.Success {
+				log.Printf("Extraction failed for date %s\n", d)
+				return
+			}
+
+			files := buildFilesForDate(d, extraction.OutputDir)
+
+			mu.Lock()
+
+			extractions = append(extractions, DayExtraction{Date: d, Files: files})
+			mu.Unlock()
+			fmt.Printf("Data for date %s successfully extracted to %s\n", d, extraction.OutputDir)
+
 		}(url, init_date)
-		init_parsed_date = init_parsed_date.AddDate(0, 1, 0)
+		init_parsed_date = init_parsed_date.AddDate(0, 0, 1)
 	}
 	wg.Wait()
+
+	BulkExtractCommitments(extractions, []string{""})
 }
