@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-gota/gota/dataframe"
+	"github.com/go-gota/gota/series"
 	"golang.org/x/text/encoding/charmap"
 )
 
@@ -23,11 +24,13 @@ const (
 	DespesasItemEmpenho
 	DespesasLiquidacao
 	DespesasPagamento
+	DespesasPagamentoListaBancos
 	DespesasPagamentoEmpenhosImpactados
 	DespesasPagamentoFavoricidosFinais
+	DespesasPagamentoListaFaturas
+	DespesasPagamentoListaPrecatorios
 	DespesasLiquidacaoEmpenhos
 	DespesasLiquidacaoEmpenhosImpactados
-	DespesasPagamentoListaBancos
 )
 
 const (
@@ -37,6 +40,9 @@ const (
 	DespesasPagamentoDataType                    = "_Despesas_Pagamento.csv"
 	DespesasLiquidacaoEmpenhosImpactadosDataType = "_Despesas_Liquidacao_EmpenhosImpactados.csv"
 	DespesasPagamentoEmpenhosImpactadosDataType  = "_Despesas_Pagamento_EmpenhosImpactados.csv"
+	DespesasPagamentoListaBancosDataType         = "_Despesas_Pagamento_ListaBancos.csv"
+	DespesasPagamentoListaFaturasDataType        = "_Despesas_Pagamento_ListaFaturas.csv"
+	DespesasPagamentoListaPrecatoriosDataType    = "_Despesas_Pagamento_ListaPrecatorios.csv"
 )
 
 type DownloadResult struct {
@@ -57,7 +63,18 @@ var dataTypeSuffix = map[DataType]string{
 	DespesasPagamento:                    DespesasPagamentoDataType,
 	DespesasLiquidacaoEmpenhosImpactados: DespesasLiquidacaoEmpenhosImpactadosDataType,
 	DespesasPagamentoEmpenhosImpactados:  DespesasPagamentoEmpenhosImpactadosDataType,
+	DespesasPagamentoListaBancos:         DespesasPagamentoListaBancosDataType,
+	DespesasPagamentoListaFaturas:        DespesasPagamentoListaFaturasDataType,
+	DespesasPagamentoListaPrecatorios:    DespesasPagamentoListaPrecatoriosDataType,
 }
+
+var notUsedFiles = []DataType{
+	DespesasPagamentoListaBancos,
+	DespesasPagamentoListaFaturas,
+	DespesasPagamentoListaPrecatorios,
+}
+
+var PORTAL_TRANSPARENCIA_URL = "https://portaldatransparencia.gov.br/download-de-dados/despesas/"
 
 type DayExtraction struct {
 	Date  string
@@ -118,9 +135,18 @@ func fetchData(downloadUrl string, date string) DownloadResult {
 		return DownloadResult{Success: false}
 	}
 
-	fmt.Printf("Data successfully downloaded to %s\n", output_path)
-
 	return DownloadResult{Success: true, OutputPath: output_path}
+}
+
+func isFileUsed(filename string) bool {
+
+	for _, v := range notUsedFiles {
+		if strings.HasSuffix(filename, dataTypeSuffix[v]) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func unzipFile(zipPath string, destDir string) ExtractionResult {
@@ -147,6 +173,10 @@ func unzipFile(zipPath string, destDir string) ExtractionResult {
 
 		if !strings.HasPrefix(filePath, filepath.Clean(destDir)+string(os.PathSeparator)) {
 			return ExtractionResult{Success: false}
+		}
+
+		if !isFileUsed(f.Name) {
+			continue
 		}
 
 		destFile, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
@@ -178,29 +208,78 @@ func buildFilesForDate(date, dir string) map[DataType]string {
 	return m
 }
 
-func BulkExtractCommitments(extractions []DayExtraction, unitCode []string) {
+func extractFromCommitment(e DayExtraction) dataframe.DataFrame {
+	var df dataframe.DataFrame
+
+	return df
+}
+
+func findUnitsRows(df dataframe.DataFrame, ugCodes []string, matchChan chan dataframe.DataFrame, wg *sync.WaitGroup) {
+	defer wg.Done()
+	log.Printf("Searching for units codes: %v", ugCodes)
+	filter := dataframe.F{
+		Colname:    "Código Unidade Gestora",
+		Comparator: series.In,
+		Comparando: ugCodes,
+	}
+
+	matchingRows := df.Filter(
+		filter,
+	)
+	if df.Error() != nil {
+		log.Printf("Error filtering DataFrame: %v", df.Error())
+		return
+	}
+
+	fmt.Printf("Found rows: %d\n", matchingRows.Nrow())
+	if matchingRows.Nrow() > 0 {
+		matchChan <- matchingRows
+	}
+
+}
+
+func BulkExtractCommitments(extractions []DayExtraction, unitsCode []string) {
+	var wg sync.WaitGroup
+
+	mainMatches := make(chan dataframe.DataFrame, 3)
+
+	hasUgCodeAsColumn := []DataType{
+		DespesasEmpenho,
+		DespesasLiquidacao,
+		DespesasPagamento,
+	}
 	for _, e := range extractions {
-		if p, ok := e.Files[DespesasEmpenho]; ok {
-			file, err := os.Open(p)
+		for _, dt := range hasUgCodeAsColumn {
+			if p, ok := e.Files[dt]; ok {
+				fmt.Printf("Processing file for date %s and data type %s\n", e.Date, dt)
+				file, err := os.Open(p)
 
-			if err != nil {
-				log.Fatalf("Failed to open file %s: %v", p, err)
-			}
-
-			func() {
-				defer file.Close()
+				if err != nil {
+					log.Printf("Failed to open file %s: %v", p, err)
+					return
+				}
 
 				decoded := charmap.Windows1252.NewDecoder().Reader(file)
 
 				df := dataframe.ReadCSV(decoded, dataframe.WithDelimiter(';'), dataframe.WithLazyQuotes(true))
 
-				fmt.Println(df)
+				file.Close()
 
-			}()
-
+				wg.Add(1)
+				go findUnitsRows(df, unitsCode, mainMatches, &wg)
+			}
 		}
-
 	}
+	wg.Wait()
+
+	close(mainMatches)
+	res := dataframe.New()
+	fmt.Printf("Found %d matching DataFrames\n", len(mainMatches))
+	for df := range mainMatches {
+		res = res.Concat(df)
+	}
+	fmt.Printf("Combined DataFrame has %d rows and %d columns\n", res.Nrow(), res.Ncol())
+
 }
 
 func main() {
@@ -226,24 +305,39 @@ func main() {
 	}
 
 	var extractions []DayExtraction
+	mockedExtractions := []DayExtraction{
+		DayExtraction{
+			Date: "20250101",
+			Files: map[DataType]string{
+				DespesasEmpenho:     "tmp/data/despesas_20250101/20250101_Despesas_Empenho.csv",
+				DespesasItemEmpenho: "tmp/data/despesas_20250101/20250101_Despesas_Item_Empenho.csv",
+				DespesasLiquidacao:  "tmp/data/despesas_20250101/20250101_Despesas_Liquidacao.csv",
+			},
+		},
+	}
+
 	var mu sync.Mutex
 
 	var wg sync.WaitGroup
 
 	for !init_parsed_date.After(end_parsed_date) {
 		init_date = init_parsed_date.Format("20060102")
-		url = "https://portaldatransparencia.gov.br/download-de-dados/despesas/" + init_date
+		url = PORTAL_TRANSPARENCIA_URL + init_date
 		wg.Add(1)
 		go func(u, d string) {
 			defer wg.Done()
-			download := fetchData(u, d)
+			// download := fetchData(u, d)
+			mockedDownload := DownloadResult{
+				Success:    true,
+				OutputPath: "tmp/zips/despesas_" + d + ".zip",
+			}
 
-			if !download.Success {
+			if !mockedDownload.Success {
 				log.Printf("Download failed for date %s\n", d)
 				return
 			}
 
-			extraction := unzipFile(download.OutputPath, "tmp/data/despesas_"+d)
+			extraction := unzipFile(mockedDownload.OutputPath, "tmp/data/despesas_"+d)
 
 			if !extraction.Success {
 				log.Printf("Extraction failed for date %s\n", d)
@@ -253,7 +347,6 @@ func main() {
 			files := buildFilesForDate(d, extraction.OutputDir)
 
 			mu.Lock()
-
 			extractions = append(extractions, DayExtraction{Date: d, Files: files})
 			mu.Unlock()
 			fmt.Printf("Data for date %s successfully extracted to %s\n", d, extraction.OutputDir)
@@ -262,6 +355,7 @@ func main() {
 		init_parsed_date = init_parsed_date.AddDate(0, 0, 1)
 	}
 	wg.Wait()
+	// BulkExtractCommitments(mockedExtractions, []string{"158454"})
+	BulkExtractCommitments(mockedExtractions, []string{"155230"})
 
-	BulkExtractCommitments(extractions, []string{""})
 }
