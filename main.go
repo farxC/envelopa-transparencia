@@ -56,6 +56,11 @@ type ExtractionResult struct {
 	OutputDir string
 }
 
+type ExtractedDataframe struct {
+	Dataframe dataframe.DataFrame
+	Type      DataType
+}
+
 var dataTypeSuffix = map[DataType]string{
 	DespesasEmpenho:                      DespesasEmpenhoDataType,
 	DespesasItemEmpenho:                  DespesasItemEmpenhoDataType,
@@ -208,13 +213,106 @@ func buildFilesForDate(date, dir string) map[DataType]string {
 	return m
 }
 
-func extractFromCommitment(e DayExtraction) dataframe.DataFrame {
-	var df dataframe.DataFrame
+func saveDataFrame(df dataframe.DataFrame, filename string) error {
+	f, err := os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("error creating file: %v", err)
+	}
+	defer f.Close()
 
-	return df
+	if err := df.WriteCSV(f); err != nil {
+		return fmt.Errorf("error writing CSV: %v", err)
+	}
+
+	return nil
 }
 
-func findUnitsRows(df dataframe.DataFrame, ugCodes []string, matchChan chan dataframe.DataFrame, wg *sync.WaitGroup) {
+func concatCompleteExpenseNature(originalDf dataframe.DataFrame) (dataframe.DataFrame, error) {
+	var expenseNatureCols = []string{"Código Categoria de Despesa", "Código Grupo de Despesa", "Código Modalidade de Aplicação", "Código Elemento de Despesa"}
+
+	completeExpenseNature := originalDf.Select(expenseNatureCols).Rapply(func(s series.Series) series.Series {
+		rowValues := s.Records()
+		joined := strings.Join(rowValues, ".")
+		return series.Strings(joined)
+	})
+	if completeExpenseNature.Error() != nil {
+		return dataframe.DataFrame{}, fmt.Errorf("error creating complete expense nature: %v", completeExpenseNature.Error())
+	}
+
+	return originalDf.Mutate(series.New(completeExpenseNature.Col("X0"), series.String, "Natureza de Despesa Completa")), nil
+}
+
+var columnsForDataType = map[DataType][]string{
+	DespesasPagamento: {
+		"Código Pagamento",
+		"Código Pagamento Resumido",
+		"Data Emissão",
+		"Código Tipo Documento",
+		"Tipo Documento",
+		"Tipo OB",
+		"Extraornamentário",
+		"Processo",
+		"Código Unidade Gestora",
+		"Unidade Gestora",
+		"Código Gestão",
+		"Gestão",
+		"Código Favorecido",
+		"Favorecido",
+		"Valor Original do Pagamento",
+		"Valor do Pagamento Convertido para R$",
+		"Valor Utilizado na Conversão",
+	},
+	DespesasLiquidacao: {
+		"Código Liquidação",
+		"Código Liquidação Resumido",
+		"Data Emissão",
+		"Código Tipo Documento",
+		"Tipo Documento",
+		"Código Unidade Gestora",
+		"Unidade Gestora",
+		"Código Gestão",
+		"Gestão",
+		"Código Favorecido",
+		"Favorecido",
+		"Observação",
+	},
+	DespesasEmpenho: {
+		"Código Empenho",
+		"Código Empenho Resumido",
+		"Data Emissão",
+		"Tipo Empenho",
+		"Código Unidade Gestora",
+		"Código Gestão",
+		"Gestão",
+		"Código Favorecido",
+		"Elemento de Despesa",
+		"Plano Orçamentário",
+		"Valor Original do Empenho",
+		"Valor do Empenho Convertido pra R$",
+		"Valor Utilizado na Conversão",
+	},
+}
+
+func transformExpenses(df dataframe.DataFrame, dfType DataType) (dataframe.DataFrame, error) {
+	selectedCols, ok := columnsForDataType[dfType]
+	if !ok {
+		return dataframe.DataFrame{}, fmt.Errorf("unsupported data type for transformation: %v", dfType)
+	}
+	result, err := concatCompleteExpenseNature(df)
+
+	if err != nil {
+		return dataframe.DataFrame{}, fmt.Errorf("error concatenating complete expense nature: %v", err)
+	}
+	selectedCols = append(selectedCols, "Natureza de Despesa Completa")
+	result = result.Select(selectedCols)
+	if result.Error() != nil {
+		return dataframe.DataFrame{}, fmt.Errorf("error selecting columns: %v", result.Error())
+	}
+
+	return result, nil
+}
+
+func findUnitsRows(df dataframe.DataFrame, dfType DataType, ugCodes []string, matchChan chan ExtractedDataframe, wg *sync.WaitGroup) {
 	defer wg.Done()
 	log.Printf("Searching for units codes: %v", ugCodes)
 	filter := dataframe.F{
@@ -226,6 +324,7 @@ func findUnitsRows(df dataframe.DataFrame, ugCodes []string, matchChan chan data
 	matchingRows := df.Filter(
 		filter,
 	)
+
 	if df.Error() != nil {
 		log.Printf("Error filtering DataFrame: %v", df.Error())
 		return
@@ -233,15 +332,15 @@ func findUnitsRows(df dataframe.DataFrame, ugCodes []string, matchChan chan data
 
 	fmt.Printf("Found rows: %d\n", matchingRows.Nrow())
 	if matchingRows.Nrow() > 0 {
-		matchChan <- matchingRows
+		matchChan <- ExtractedDataframe{Dataframe: matchingRows, Type: dfType}
 	}
 
 }
 
-func BulkExtractCommitments(extractions []DayExtraction, unitsCode []string) {
+func ExtractData(extractions []DayExtraction, unitsCode []string) {
 	var wg sync.WaitGroup
 
-	mainMatches := make(chan dataframe.DataFrame, 3)
+	mainMatches := make(chan ExtractedDataframe, 3)
 
 	hasUgCodeAsColumn := []DataType{
 		DespesasEmpenho,
@@ -266,18 +365,45 @@ func BulkExtractCommitments(extractions []DayExtraction, unitsCode []string) {
 				file.Close()
 
 				wg.Add(1)
-				go findUnitsRows(df, unitsCode, mainMatches, &wg)
+				go findUnitsRows(df, dt, unitsCode, mainMatches, &wg)
 			}
 		}
 	}
 	wg.Wait()
 
 	close(mainMatches)
-	res := dataframe.New()
+	var res = dataframe.New()
 	fmt.Printf("Found %d matching DataFrames\n", len(mainMatches))
-	for df := range mainMatches {
-		res = res.Concat(df)
+	transformed_dfs := make([]dataframe.DataFrame, 0)
+
+	// First search for matching rows in the main information data (required for sub-extractions)
+	for extracted := range mainMatches {
+		fmt.Println("Before transformation:", extracted.Dataframe.Nrow(), "rows and", extracted.Dataframe.Ncol(), "columns")
+		transformedDf, err := transformExpenses(extracted.Dataframe, extracted.Type)
+		fmt.Println("After transformation:", transformedDf.Nrow(), "rows and", transformedDf.Ncol(), "columns")
+		if err != nil {
+			log.Printf("Error transforming DataFrame for type %v: %v", extracted.Type, err)
+			continue
+
+		}
+		transformed_dfs = append(transformed_dfs, transformedDf)
 	}
+
+	if res.Nrow() == 0 {
+		res = transformed_dfs[0]
+	}
+	for i := 1; i < len(transformed_dfs); i++ {
+		res = res.Concat(transformed_dfs[i])
+	}
+
+	var ugsCommitments []string
+	if len(transformed_dfs) > 0 {
+		ugsCommitments = transformed_dfs[0].Col("Código Empenho").Records()
+	}
+	fmt.Println(ugsCommitments)
+
+	// TO DO: Create logic for sub-extractions (items, items history, liquidations impacted, payments impacted)
+	saveDataFrame(res, "combined_data.csv")
 	fmt.Printf("Combined DataFrame has %d rows and %d columns\n", res.Nrow(), res.Ncol())
 
 }
@@ -356,6 +482,6 @@ func main() {
 	}
 	wg.Wait()
 	// BulkExtractCommitments(mockedExtractions, []string{"158454"})
-	BulkExtractCommitments(mockedExtractions, []string{"155230"})
+	ExtractData(mockedExtractions, []string{"155230"})
 
 }
