@@ -22,6 +22,7 @@ type DataType int
 const (
 	DespesasEmpenho DataType = iota
 	DespesasItemEmpenho
+	DespesasItemEmpenhoHistorico
 	DespesasLiquidacao
 	DespesasPagamento
 	DespesasPagamentoListaBancos
@@ -35,7 +36,8 @@ const (
 
 const (
 	DespesasEmpenhoDataType                      = "_Despesas_Empenho.csv"
-	DespesasItemEmpenhoDataType                  = "_Despesas_Item_Empenho.csv"
+	DespesasItemEmpenhoDataType                  = "_Despesas_ItemEmpenho.csv"
+	DespesasItemEmpenhoHistoricoDataType         = "_Despesas_ItemEmpenhoHistorico.csv"
 	DespesasLiquidacaoDataType                   = "_Despesas_Liquidacao.csv"
 	DespesasPagamentoDataType                    = "_Despesas_Pagamento.csv"
 	DespesasLiquidacaoEmpenhosImpactadosDataType = "_Despesas_Liquidacao_EmpenhosImpactados.csv"
@@ -61,9 +63,15 @@ type ExtractedDataframe struct {
 	Type      DataType
 }
 
+type CommitmentItems struct {
+	CommitmentCode string
+	ItemsDf        dataframe.DataFrame
+}
+
 var dataTypeSuffix = map[DataType]string{
 	DespesasEmpenho:                      DespesasEmpenhoDataType,
 	DespesasItemEmpenho:                  DespesasItemEmpenhoDataType,
+	DespesasItemEmpenhoHistorico:         DespesasItemEmpenhoHistoricoDataType,
 	DespesasLiquidacao:                   DespesasLiquidacaoDataType,
 	DespesasPagamento:                    DespesasPagamentoDataType,
 	DespesasLiquidacaoEmpenhosImpactados: DespesasLiquidacaoEmpenhosImpactadosDataType,
@@ -291,6 +299,42 @@ var columnsForDataType = map[DataType][]string{
 		"Valor do Empenho Convertido pra R$",
 		"Valor Utilizado na Conversão",
 	},
+	DespesasItemEmpenho: {
+		"Código Empenho",
+		"Categoria de Despesa",
+		"Grupo de Despesa",
+		"Modalidade de Aplicação",
+		"Elemento de Despesa",
+		"Descrição",
+		"Quantidade",
+		"Valor Unitário",
+		"Valor Total",
+		"Sequencial",
+		"Valor Atual",
+	},
+	DespesasItemEmpenhoHistorico: {
+		"Código Empenho",
+		"Sequencial",
+		"Tipo Operação",
+		"Data Operação",
+		"Quantidade Item",
+		"Valor Unitário Item",
+		"Valor Total Item",
+	},
+}
+
+func dataframeContainsExpenseNatureColumns(df dataframe.DataFrame) bool {
+	var expenseNatureCols = []string{"Código Categoria de Despesa", "Código Grupo de Despesa", "Código Modalidade de Aplicação", "Código Elemento de Despesa"}
+
+	for _, name := range df.Names() {
+		for _, col := range expenseNatureCols {
+			if name == col {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func transformExpenses(df dataframe.DataFrame, dfType DataType) (dataframe.DataFrame, error) {
@@ -298,12 +342,18 @@ func transformExpenses(df dataframe.DataFrame, dfType DataType) (dataframe.DataF
 	if !ok {
 		return dataframe.DataFrame{}, fmt.Errorf("unsupported data type for transformation: %v", dfType)
 	}
-	result, err := concatCompleteExpenseNature(df)
 
-	if err != nil {
-		return dataframe.DataFrame{}, fmt.Errorf("error concatenating complete expense nature: %v", err)
+	var result dataframe.DataFrame
+
+	if dataframeContainsExpenseNatureColumns(df) {
+		var err error
+		result, err = concatCompleteExpenseNature(df)
+		if err != nil {
+			return dataframe.DataFrame{}, fmt.Errorf("error concatenating complete expense nature: %v", err)
+		}
+		selectedCols = append(selectedCols, "Natureza de Despesa Completa")
 	}
-	selectedCols = append(selectedCols, "Natureza de Despesa Completa")
+
 	result = result.Select(selectedCols)
 	if result.Error() != nil {
 		return dataframe.DataFrame{}, fmt.Errorf("error selecting columns: %v", result.Error())
@@ -312,13 +362,14 @@ func transformExpenses(df dataframe.DataFrame, dfType DataType) (dataframe.DataF
 	return result, nil
 }
 
-func findUnitsRows(df dataframe.DataFrame, dfType DataType, ugCodes []string, matchChan chan ExtractedDataframe, wg *sync.WaitGroup) {
+func findRows(df dataframe.DataFrame, dfType DataType, codes []string, codeColumn string, ch chan ExtractedDataframe, wg *sync.WaitGroup) {
 	defer wg.Done()
-	log.Printf("Searching for units codes: %v", ugCodes)
+	log.Printf("Searching for %s codes: %v", codeColumn, codes)
+
 	filter := dataframe.F{
-		Colname:    "Código Unidade Gestora",
+		Colname:    codeColumn,
 		Comparator: series.In,
-		Comparando: ugCodes,
+		Comparando: codes,
 	}
 
 	matchingRows := df.Filter(
@@ -332,43 +383,79 @@ func findUnitsRows(df dataframe.DataFrame, dfType DataType, ugCodes []string, ma
 
 	fmt.Printf("Found rows: %d\n", matchingRows.Nrow())
 	if matchingRows.Nrow() > 0 {
-		matchChan <- ExtractedDataframe{Dataframe: matchingRows, Type: dfType}
+		ch <- ExtractedDataframe{Dataframe: matchingRows, Type: dfType}
 	}
 
+}
+
+// Future improvements
+func removeExtraction(sl []DayExtraction, idx int) []DayExtraction {
+	if idx < 0 || idx >= len(sl) {
+		return sl
+	}
+	return append(sl[:idx], sl[idx+1:]...)
+}
+
+func FindCommitmentItemsHistory(commitments []string) []CommitmentItems {
+	return []CommitmentItems{}
+}
+
+func OpenFileAndDecode(path string) (dataframe.DataFrame, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return dataframe.DataFrame{}, fmt.Errorf("failed to open file %s: %v", path, err)
+	}
+	defer file.Close()
+
+	// Using Windows1252 because it is the encoding used by the original CSV files
+	decoded := charmap.Windows1252.NewDecoder().Reader(file)
+	df := dataframe.ReadCSV(decoded, dataframe.WithDelimiter(';'), dataframe.WithLazyQuotes(true))
+
+	return df, df.Error()
+}
+
+func filterExtractionsByColumn(extractions []DayExtraction, dataTypes []DataType, codes []string, matchColumn string, chToRelease chan ExtractedDataframe, wg *sync.WaitGroup) []DayExtraction {
+	fmt.Printf("Filtering extractions by column and types: %s %v\n", matchColumn, dataTypes)
+	for _, e := range extractions {
+		for _, dt := range dataTypes {
+			if p, ok := e.Files[dt]; ok {
+				df, err := OpenFileAndDecode(p)
+				if err != nil {
+					log.Printf("Failed to open and decode file %s: %v", p, err)
+					continue
+				}
+				wg.Add(1)
+				go findRows(df, dt, codes, matchColumn, chToRelease, wg)
+
+				//Remove the actual index to not process it again
+				delete(e.Files, dt)
+			}
+		}
+	}
+	return extractions
 }
 
 func ExtractData(extractions []DayExtraction, unitsCode []string) {
 	var wg sync.WaitGroup
 
 	mainMatches := make(chan ExtractedDataframe, 3)
+	commitmentMatches := make(chan ExtractedDataframe, 3)
 
 	hasUgCodeAsColumn := []DataType{
 		DespesasEmpenho,
 		DespesasLiquidacao,
 		DespesasPagamento,
 	}
-	for _, e := range extractions {
-		for _, dt := range hasUgCodeAsColumn {
-			if p, ok := e.Files[dt]; ok {
-				fmt.Printf("Processing file for date %s and data type %s\n", e.Date, dt)
-				file, err := os.Open(p)
 
-				if err != nil {
-					log.Printf("Failed to open file %s: %v", p, err)
-					return
-				}
-
-				decoded := charmap.Windows1252.NewDecoder().Reader(file)
-
-				df := dataframe.ReadCSV(decoded, dataframe.WithDelimiter(';'), dataframe.WithLazyQuotes(true))
-
-				file.Close()
-
-				wg.Add(1)
-				go findUnitsRows(df, dt, unitsCode, mainMatches, &wg)
-			}
-		}
+	hasCommitmentCodeAsColumn := []DataType{
+		DespesasItemEmpenho,
+		DespesasItemEmpenhoHistorico,
+		// DespesasLiquidacaoEmpenhosImpactados,
+		// DespesasPagamentoEmpenhosImpactados,
 	}
+
+	//First, find all Commitments based in Unit Codes
+	extractions = filterExtractionsByColumn(extractions, hasUgCodeAsColumn, unitsCode, "Código Unidade Gestora", mainMatches, &wg)
 	wg.Wait()
 
 	close(mainMatches)
@@ -378,9 +465,7 @@ func ExtractData(extractions []DayExtraction, unitsCode []string) {
 
 	// First search for matching rows in the main information data (required for sub-extractions)
 	for extracted := range mainMatches {
-		fmt.Println("Before transformation:", extracted.Dataframe.Nrow(), "rows and", extracted.Dataframe.Ncol(), "columns")
 		transformedDf, err := transformExpenses(extracted.Dataframe, extracted.Type)
-		fmt.Println("After transformation:", transformedDf.Nrow(), "rows and", transformedDf.Ncol(), "columns")
 		if err != nil {
 			log.Printf("Error transforming DataFrame for type %v: %v", extracted.Type, err)
 			continue
@@ -400,10 +485,39 @@ func ExtractData(extractions []DayExtraction, unitsCode []string) {
 	if len(transformed_dfs) > 0 {
 		ugsCommitments = transformed_dfs[0].Col("Código Empenho").Records()
 	}
-	fmt.Println(ugsCommitments)
 
 	// TO DO: Create logic for sub-extractions (items, items history, liquidations impacted, payments impacted)
+	extractions = filterExtractionsByColumn(extractions, hasCommitmentCodeAsColumn,
+		ugsCommitments, "Código Empenho", commitmentMatches, &wg)
+	wg.Wait()
+
+	close(commitmentMatches)
+	fmt.Printf("Commitment matches found: %d\n", len(commitmentMatches))
+	commitmentDfs := make([]dataframe.DataFrame, 0)
+
+	var res_2 = dataframe.New()
+
+	for extracted := range commitmentMatches {
+		transformedDf, err := transformExpenses(extracted.Dataframe, extracted.Type)
+		fmt.Printf("Columns transformed: %v\n", transformedDf.Names())
+
+		if err != nil {
+			log.Printf("Error transforming DataFrame for type %v: %v", extracted.Type, err)
+			continue
+		}
+		commitmentDfs = append(commitmentDfs, transformedDf)
+	}
+
+	if len(commitmentDfs) > 0 {
+		res_2 = commitmentDfs[0]
+	}
+	for i := 1; i < len(commitmentDfs); i++ {
+		res_2 = res_2.Concat(commitmentDfs[i])
+	}
+
 	saveDataFrame(res, "combined_data.csv")
+	saveDataFrame(res_2, "combined_commitment_data.csv")
+
 	fmt.Printf("Combined DataFrame has %d rows and %d columns\n", res.Nrow(), res.Ncol())
 
 }
@@ -435,9 +549,10 @@ func main() {
 		DayExtraction{
 			Date: "20250101",
 			Files: map[DataType]string{
-				DespesasEmpenho:     "tmp/data/despesas_20250101/20250101_Despesas_Empenho.csv",
-				DespesasItemEmpenho: "tmp/data/despesas_20250101/20250101_Despesas_Item_Empenho.csv",
-				DespesasLiquidacao:  "tmp/data/despesas_20250101/20250101_Despesas_Liquidacao.csv",
+				DespesasEmpenho:              "tmp/data/despesas_20250101/20250101_Despesas_Empenho.csv",
+				DespesasItemEmpenho:          "tmp/data/despesas_20250101/20250101_Despesas_ItemEmpenho.csv",
+				DespesasLiquidacao:           "tmp/data/despesas_20250101/20250101_Despesas_Liquidacao.csv",
+				DespesasItemEmpenhoHistorico: "tmp/data/despesas_20250101/20250101_Despesas_ItemEmpenhoHistorico.csv",
 			},
 		},
 	}
