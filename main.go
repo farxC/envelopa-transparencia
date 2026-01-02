@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -94,7 +95,7 @@ var columnsForDataType = map[DataType][]string{
 		"Código Tipo Documento",
 		"Tipo Documento",
 		"Tipo OB",
-		"Extraornamentário",
+		"Extraorçamentário",
 		"Processo",
 		"Código Unidade Gestora",
 		"Unidade Gestora",
@@ -103,7 +104,7 @@ var columnsForDataType = map[DataType][]string{
 		"Código Favorecido",
 		"Favorecido",
 		"Valor Original do Pagamento",
-		"Valor do Pagamento Convertido para R$",
+		"Valor do Pagamento Convertido pra R$",
 		"Valor Utilizado na Conversão",
 	},
 	DespesasLiquidacao: {
@@ -126,6 +127,7 @@ var columnsForDataType = map[DataType][]string{
 		"Data Emissão",
 		"Tipo Empenho",
 		"Código Unidade Gestora",
+		"Unidade Gestora",
 		"Código Gestão",
 		"Gestão",
 		"Código Favorecido",
@@ -209,10 +211,44 @@ type Commitment struct {
 	ConversionValueUsed           float32          `json:"conversion_value_used"`
 	Items                         []CommitmentItem `json:"items"`
 }
+
+type Liquidation struct {
+	LiquidationCode        string `json:"liquidation_code"`
+	LiquidationCodeResumed string `json:"liquidation_code_resumed"`
+	LiquidationEmitionDate string `json:"liquidation_emition_date"`
+	DocumentCodeType       string `json:"document_code_type"`
+	DocumentType           string `json:"document_type"`
+	FavoredCode            string `json:"favored_code"`
+	FavoredName            string `json:"favored_name"`
+	Observation            string `json:"observation"`
+}
+
+type Payment struct {
+	PaymentCode           string `json:"payment_code"`
+	PaymentCodeResumed    string `json:"payment_code_resumed"`
+	PaymentEmitionDate    string `json:"payment_emition_date"`
+	DocumentCodeType      string `json:"document_code_type"`
+	DocumentType          string `json:"document_type"`
+	FavoredCode           string `json:"favored_code"`
+	FavoredName           string `json:"favored_name"`
+	Observation           string `json:"observation"`
+	ExtraBudgetary        string `json:"extra_budgetary"`
+	Process               string `json:"process"`
+	OriginalPaymentValue  string `json:"original_payment_value"`
+	ConvertedPaymentValue string `json:"converted_payment_value"`
+	ConversionUsedValue   string `json:"conversion_used_value"`
+}
 type UnitCommitments struct {
-	UgCode      string       `json:"ug_code"`
-	UgName      string       `json:"ug_name"`
-	Commitments []Commitment `json:"commitments"`
+	UgCode       string        `json:"ug_code"`
+	UgName       string        `json:"ug_name"`
+	Commitments  []Commitment  `json:"commitments"`
+	Liquidations []Liquidation `json:"liquidations"`
+	Payments     []Payment     `json:"payments"`
+}
+
+type CommitmentPayload struct {
+	UnitCommitments []UnitCommitments `json:"units"`
+	ExtractionDate  string            `json:"extraction_date"`
 }
 
 var PORTAL_TRANSPARENCIA_URL = "https://portaldatransparencia.gov.br/download-de-dados/despesas/"
@@ -340,9 +376,6 @@ func unzipFile(zipPath string, destDir string) ExtractionResult {
 	return ExtractionResult{Success: true, Data: DespesasEmpenho, OutputDir: destDir}
 }
 
-func mountCommitmentJsonPayload(dataframe dataframe.DataFrame, dataType DataType, currentPayload Commitment) ([]byte, error) {
-	return []byte{}, nil
-}
 func buildFilesForDate(date, dir string) map[DataType]string {
 	m := make(map[DataType]string, len(dataTypeSuffix))
 
@@ -420,7 +453,7 @@ func transformExpenses(df dataframe.DataFrame, dfType DataType) (dataframe.DataF
 	return result, nil
 }
 
-func findRows(df dataframe.DataFrame, dfType DataType, codes []string, codeColumn string, ch chan ExtractedDataframe, wg *sync.WaitGroup) {
+func findRows(df dataframe.DataFrame, dfType DataType, codes []string, codeColumn string, date string, ch chan ExtractedDataframe, wg *sync.WaitGroup) {
 	defer wg.Done()
 	log.Printf("Searching for %s codes: %v", codeColumn, codes)
 
@@ -439,7 +472,7 @@ func findRows(df dataframe.DataFrame, dfType DataType, codes []string, codeColum
 		return
 	}
 
-	fmt.Printf("Found rows: %d\n for type: %s\n", matchingRows.Nrow(), DataTypeNames[dfType])
+	fmt.Printf("%s Found rows: %d\n for type: %s\n", date, matchingRows.Nrow(), DataTypeNames[dfType])
 	if matchingRows.Nrow() > 0 {
 		ch <- ExtractedDataframe{Dataframe: matchingRows, Type: dfType}
 	}
@@ -488,7 +521,7 @@ func filterExtractionsByColumn(extractions []DayExtraction, dataTypes []DataType
 					continue
 				}
 				wg.Add(1)
-				go findRows(df, dt, codes, matchColumn, chToRelease, wg)
+				go findRows(df, dt, codes, matchColumn, e.Date, chToRelease, wg)
 
 				//Remove the actual index to not process it again
 				delete(e.Files, dt)
@@ -498,8 +531,118 @@ func filterExtractionsByColumn(extractions []DayExtraction, dataTypes []DataType
 	return extractions
 }
 
-func ExtractData(extractions []DayExtraction, unitsCode []string) {
+func dfRowToCommitment(df dataframe.DataFrame, rowIdx int) Commitment {
+	getStr := func(col string) string {
+		if idx := df.Names(); containsString(idx, col) {
+			return df.Col(col).Elem(rowIdx).String()
+		}
+		return ""
+	}
+
+	return Commitment{
+		CommitmentCode:        getStr("Código Empenho"),
+		ResumedCommitmentCode: getStr("Código Empenho Resumido"),
+		EmitionDate:           getStr("Data Emissão"),
+		Type:                  getStr("Tipo Empenho"),
+		ManagementCode:        getStr("Código Gestão"),
+		ManagementName:        getStr("Gestão"),
+		FavoredCode:           getStr("Código Favorecido"),
+		ExpenseNature:         getStr("Elemento de Despesa"),
+		CompleteExpenseNature: getStr("Natureza de Despesa Completa"),
+		BudgetPlan:            getStr("Plano Orçamentário"),
+		Items:                 []CommitmentItem{},
+	}
+}
+
+func dfRowToLiquidation(df dataframe.DataFrame, rowIdx int) Liquidation {
+	getStr := func(col string) string {
+		if containsString(df.Names(), col) {
+			return df.Col(col).Elem(rowIdx).String()
+		}
+		return ""
+	}
+
+	return Liquidation{
+		LiquidationCode:        getStr("Código Liquidação"),
+		LiquidationCodeResumed: getStr("Código Liquidação Resumido"),
+		LiquidationEmitionDate: getStr("Data Emissão"),
+		DocumentCodeType:       getStr("Código Tipo Documento"),
+		DocumentType:           getStr("Tipo Documento"),
+		FavoredCode:            getStr("Código Favorecido"),
+		FavoredName:            getStr("Favorecido"),
+		Observation:            getStr("Observação"),
+	}
+}
+
+func dfRowToPayment(df dataframe.DataFrame, rowIdx int) Payment {
+	getStr := func(col string) string {
+		if containsString(df.Names(), col) {
+			return df.Col(col).Elem(rowIdx).String()
+		}
+		return ""
+	}
+
+	return Payment{
+		PaymentCode:           getStr("Código Pagamento"),
+		PaymentCodeResumed:    getStr("Código Pagamento Resumido"),
+		PaymentEmitionDate:    getStr("Data Emissão"),
+		DocumentCodeType:      getStr("Código Tipo Documento"),
+		DocumentType:          getStr("Tipo Documento"),
+		FavoredCode:           getStr("Código Favorecido"),
+		FavoredName:           getStr("Favorecido"),
+		ExtraBudgetary:        getStr("Extraorçamentário"),
+		Process:               getStr("Processo"),
+		OriginalPaymentValue:  getStr("Valor Original do Pagamento"),
+		ConvertedPaymentValue: getStr("Valor do Pagamento Convertido pra R$"),
+		ConversionUsedValue:   getStr("Valor Utilizado na Conversão"),
+	}
+}
+
+func dfRowToCommitmentItem(df dataframe.DataFrame, rowIdx int) CommitmentItem {
+	getStr := func(col string) string {
+		if containsString(df.Names(), col) {
+			return df.Col(col).Elem(rowIdx).String()
+		}
+		return ""
+	}
+
+	return CommitmentItem{
+		ExpenseCategory:    getStr("Categoria de Despesa"),
+		ExpenseGroup:       getStr("Grupo de Despesa"),
+		AplicationModality: getStr("Modalidade de Aplicação"),
+		ExpenseElement:     getStr("Elemento de Despesa"),
+		Description:        getStr("Descrição"),
+		Sequential:         0, // Parse from string if needed
+		History:            []CommitmentItemHistory{},
+	}
+}
+
+func dfRowToCommitmentItemHistory(df dataframe.DataFrame, rowIdx int) CommitmentItemHistory {
+	getStr := func(col string) string {
+		if containsString(df.Names(), col) {
+			return df.Col(col).Elem(rowIdx).String()
+		}
+		return ""
+	}
+
+	return CommitmentItemHistory{
+		OperationType: getStr("Tipo Operação"),
+		OperationDate: getStr("Data Operação"),
+	}
+}
+
+func containsString(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+func ExtractData(extractions []DayExtraction, unitsCode []string) (*CommitmentPayload, error) {
 	var wg sync.WaitGroup
+	extractionDate := extractions[0].Date
 
 	mainMatches := make(chan ExtractedDataframe, 3)
 	commitmentMatches := make(chan ExtractedDataframe, 3)
@@ -513,100 +656,186 @@ func ExtractData(extractions []DayExtraction, unitsCode []string) {
 	hasCommitmentCodeAsColumn := []DataType{
 		DespesasItemEmpenho,
 		DespesasItemEmpenhoHistorico,
-		// DespesasLiquidacaoEmpenhosImpactados,
-		// DespesasPagamentoEmpenhosImpactados,
 	}
 
-	//First, find all Commitments based in Unit Codes
+	// First, find all Commitments based in Unit Codes
 	extractions = filterExtractionsByColumn(extractions, hasUgCodeAsColumn, unitsCode, "Código Unidade Gestora", mainMatches, &wg)
 	wg.Wait()
-
 	close(mainMatches)
-	var res = dataframe.New()
-	fmt.Printf("Found %d matching DataFrames\n", len(mainMatches))
-	transformed_dfs := make([]dataframe.DataFrame, 0)
 
-	// First search for matching rows in the main information data (required for sub-extractions)
+	// Collect DataFrames by type
+	empenhosDf := dataframe.New()
+	liquidacoesDf := dataframe.New()
+	pagamentosDf := dataframe.New()
+
 	for extracted := range mainMatches {
 		transformedDf, err := transformExpenses(extracted.Dataframe, extracted.Type)
 		if err != nil {
-			log.Printf("Error transforming DataFrame for type %v: %v", extracted.Type, err)
+			log.Printf("Error transforming DataFrame for type %v: %v", DataTypeNames[extracted.Type], err)
 			continue
-
 		}
-		transformed_dfs = append(transformed_dfs, transformedDf)
-	}
-	if len(transformed_dfs) == 0 {
-		log.Printf("No matching data found for extraction date %s", extractions[0].Date)
-		return
-	}
-	if res.Nrow() == 0 {
-		res = transformed_dfs[0]
-	}
-	for i := 1; i < len(transformed_dfs); i++ {
-		res = res.Concat(transformed_dfs[i])
-	}
 
-	var ugsCommitments []string
-	if len(transformed_dfs) > 0 {
-		hasCommitmentCol := false
-		for _, colName := range transformed_dfs[0].Names() {
-			if colName == "Código Empenho" {
-				hasCommitmentCol = true
-				break
+		switch extracted.Type {
+		case DespesasEmpenho:
+			if empenhosDf.Nrow() == 0 {
+				empenhosDf = transformedDf
+			} else {
+				empenhosDf = empenhosDf.Concat(transformedDf)
+			}
+		case DespesasLiquidacao:
+			if liquidacoesDf.Nrow() == 0 {
+				liquidacoesDf = transformedDf
+			} else {
+				liquidacoesDf = liquidacoesDf.Concat(transformedDf)
+			}
+		case DespesasPagamento:
+			if pagamentosDf.Nrow() == 0 {
+				pagamentosDf = transformedDf
+			} else {
+				pagamentosDf = pagamentosDf.Concat(transformedDf)
 			}
 		}
-		if hasCommitmentCol {
-			ugsCommitments = transformed_dfs[0].Col("Código Empenho").Records()
-		}
+	}
+	fmt.Println("Empenhos DataFrame:")
+	fmt.Println(empenhosDf.Nrow())
+	if empenhosDf.Nrow() == 0 {
+		return nil, fmt.Errorf("no matching data found for extraction date %s", extractions[0].Date)
 	}
 
-	// TO DO: Create logic for sub-extractions (items, items history, liquidations impacted, payments impacted)
+	// Get commitment codes for sub-extraction
+	ugsCommitments := empenhosDf.Col("Código Empenho").Records()
+
+	// Extract commitment items and history
 	extractions = filterExtractionsByColumn(extractions, hasCommitmentCodeAsColumn,
 		ugsCommitments, "Código Empenho", commitmentMatches, &wg)
 	wg.Wait()
-
 	close(commitmentMatches)
-	fmt.Printf("Commitment matches found: %d\n", len(commitmentMatches))
-	commitmentDfs := make([]dataframe.DataFrame, 0)
 
-	var res_2 = dataframe.New()
+	itemsDf := dataframe.DataFrame{}
+	historyDf := dataframe.DataFrame{}
 
 	for extracted := range commitmentMatches {
 		transformedDf, err := transformExpenses(extracted.Dataframe, extracted.Type)
-		fmt.Printf("Columns transformed: %v\n", transformedDf.Names())
-
 		if err != nil {
 			log.Printf("Error transforming DataFrame for type %v: %v", extracted.Type, err)
 			continue
 		}
-		commitmentDfs = append(commitmentDfs, transformedDf)
+
+		switch extracted.Type {
+		case DespesasItemEmpenho:
+			if itemsDf.Nrow() == 0 {
+				itemsDf = transformedDf
+			} else {
+				itemsDf = itemsDf.Concat(transformedDf)
+			}
+		case DespesasItemEmpenhoHistorico:
+			if historyDf.Nrow() == 0 {
+				historyDf = transformedDf
+			} else {
+				historyDf = historyDf.Concat(transformedDf)
+			}
+		}
 	}
 
-	if len(commitmentDfs) > 0 {
-		res_2 = commitmentDfs[0]
-	}
-	for i := 1; i < len(commitmentDfs); i++ {
-		res_2 = res_2.Concat(commitmentDfs[i])
-	}
-
-	// Merge main and commitment dataframes
-	err := createDirsIfNotExist("output")
-	if err != nil {
-		log.Fatalf("Failed to create output directory: %v", err)
+	// Build the hierarchical JSON structure
+	payload := &CommitmentPayload{
+		ExtractionDate:  extractionDate,
+		UnitCommitments: []UnitCommitments{},
 	}
 
-	if res.Nrow() > 0 {
-		saveDataFrame(res, fmt.Sprintf("output/combined_data_%s.csv", extractions[0].Date))
-	}
-	fmt.Printf("Combined DataFrame has %d rows and %d columns\n", res.Nrow(), res.Ncol())
+	// Group by Unit Code
+	unitMap := make(map[string]*UnitCommitments)
 
+	// Process commitments (empenhos)
+	for i := 0; i < empenhosDf.Nrow(); i++ {
+		ugCode := empenhosDf.Col("Código Unidade Gestora").Elem(i).String()
+		ugName := empenhosDf.Col("Unidade Gestora").Elem(i).String()
+		if _, exists := unitMap[ugCode]; !exists {
+			unitMap[ugCode] = &UnitCommitments{
+				UgCode:       ugCode,
+				UgName:       ugName,
+				Commitments:  []Commitment{},
+				Liquidations: []Liquidation{},
+				Payments:     []Payment{},
+			}
+		}
+
+		commitment := dfRowToCommitment(empenhosDf, i)
+
+		// Attach items to this commitment
+		if itemsDf.Nrow() > 0 {
+			for j := 0; j < itemsDf.Nrow(); j++ {
+				itemCommitmentCode := itemsDf.Col("Código Empenho").Elem(j).String()
+				if itemCommitmentCode == commitment.CommitmentCode {
+					item := dfRowToCommitmentItem(itemsDf, j)
+
+					// Attach history to this item
+					if historyDf.Nrow() > 0 {
+						itemSequential := itemsDf.Col("Sequencial").Elem(j).String()
+						for k := 0; k < historyDf.Nrow(); k++ {
+							histCommitmentCode := historyDf.Col("Código Empenho").Elem(k).String()
+							histSequential := historyDf.Col("Sequencial").Elem(k).String()
+							if histCommitmentCode == commitment.CommitmentCode && histSequential == itemSequential {
+								history := dfRowToCommitmentItemHistory(historyDf, k)
+								item.History = append(item.History, history)
+							}
+						}
+					}
+
+					commitment.Items = append(commitment.Items, item)
+				}
+			}
+		}
+
+		unitMap[ugCode].Commitments = append(unitMap[ugCode].Commitments, commitment)
+	}
+
+	// Process liquidations
+	for i := 0; i < liquidacoesDf.Nrow(); i++ {
+		ugCode := liquidacoesDf.Col("Código Unidade Gestora").Elem(i).String()
+
+		if _, exists := unitMap[ugCode]; !exists {
+			unitMap[ugCode] = &UnitCommitments{
+				UgCode:       ugCode,
+				Commitments:  []Commitment{},
+				Liquidations: []Liquidation{},
+				Payments:     []Payment{},
+			}
+		}
+
+		liquidation := dfRowToLiquidation(liquidacoesDf, i)
+		unitMap[ugCode].Liquidations = append(unitMap[ugCode].Liquidations, liquidation)
+	}
+
+	// Process payments
+	for i := 0; i < pagamentosDf.Nrow(); i++ {
+		ugCode := pagamentosDf.Col("Código Unidade Gestora").Elem(i).String()
+
+		if _, exists := unitMap[ugCode]; !exists {
+			unitMap[ugCode] = &UnitCommitments{
+				UgCode:       ugCode,
+				Commitments:  []Commitment{},
+				Liquidations: []Liquidation{},
+				Payments:     []Payment{},
+			}
+		}
+
+		payment := dfRowToPayment(pagamentosDf, i)
+		unitMap[ugCode].Payments = append(unitMap[ugCode].Payments, payment)
+	}
+
+	// Convert map to slice
+	for _, unit := range unitMap {
+		payload.UnitCommitments = append(payload.UnitCommitments, *unit)
+	}
+
+	return payload, nil
 }
 
 func main() {
 	var url string
-	init_date := "2025-01-01"
-	end_date := "2025-12-01"
+	init_date := "2025-01-16"
+	end_date := "2025-01-16"
 	dirs := []string{"tmp/zips", "tmp/data"}
 	MAX_CONCURRENT_EXTRACTIONS_DATA := 7
 	extractions_semaphore := make(chan struct{}, MAX_CONCURRENT_EXTRACTIONS_DATA)
@@ -681,16 +910,33 @@ func main() {
 	wg.Wait()
 	// BulkExtractCommitments(mockedExtractions, []string{"158454"})
 	// Create a goroutine for each day
+	createDirsIfNotExist("output")
 	for _, extraction := range extractions {
 		wg.Add(1)
 		go func(ex DayExtraction) {
 			defer wg.Done()
 			extractions_semaphore <- struct{}{}
+			defer func() { <-extractions_semaphore }()
 
 			//Memory intensive
-			ExtractData([]DayExtraction{ex}, []string{"158454"})
+			payload, err := ExtractData([]DayExtraction{ex}, []string{"158454"})
+			if err != nil {
+				log.Printf("Error extracting data for date and type %s: %v\n", ex.Date, err)
+				return
+			}
+			jsonData, err := json.Marshal(payload)
+			if err != nil {
+				log.Printf("Error marshaling JSON for date %s: %v\n", ex.Date, err)
+				<-extractions_semaphore
+				return
+			}
+			outputPath := fmt.Sprintf("output/extraction_%s.json", ex.Date)
+			if err := os.WriteFile(outputPath, jsonData, 0644); err != nil {
+				log.Printf("Error writing output file for date %s: %v\n", ex.Date, err)
+			} else {
+				log.Printf("Output file for date %s written successfully\n", ex.Date)
+			}
 
-			<-extractions_semaphore
 		}(extraction)
 	}
 
