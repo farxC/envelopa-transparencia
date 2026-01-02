@@ -86,6 +86,134 @@ var notUsedFiles = []DataType{
 	DespesasPagamentoListaFaturas,
 	DespesasPagamentoListaPrecatorios,
 }
+var columnsForDataType = map[DataType][]string{
+	DespesasPagamento: {
+		"Código Pagamento",
+		"Código Pagamento Resumido",
+		"Data Emissão",
+		"Código Tipo Documento",
+		"Tipo Documento",
+		"Tipo OB",
+		"Extraornamentário",
+		"Processo",
+		"Código Unidade Gestora",
+		"Unidade Gestora",
+		"Código Gestão",
+		"Gestão",
+		"Código Favorecido",
+		"Favorecido",
+		"Valor Original do Pagamento",
+		"Valor do Pagamento Convertido para R$",
+		"Valor Utilizado na Conversão",
+	},
+	DespesasLiquidacao: {
+		"Código Liquidação",
+		"Código Liquidação Resumido",
+		"Data Emissão",
+		"Código Tipo Documento",
+		"Tipo Documento",
+		"Código Unidade Gestora",
+		"Unidade Gestora",
+		"Código Gestão",
+		"Gestão",
+		"Código Favorecido",
+		"Favorecido",
+		"Observação",
+	},
+	DespesasEmpenho: {
+		"Código Empenho",
+		"Código Empenho Resumido",
+		"Data Emissão",
+		"Tipo Empenho",
+		"Código Unidade Gestora",
+		"Código Gestão",
+		"Gestão",
+		"Código Favorecido",
+		"Elemento de Despesa",
+		"Plano Orçamentário",
+		"Valor Original do Empenho",
+		"Valor do Empenho Convertido pra R$",
+		"Valor Utilizado na Conversão",
+	},
+	DespesasItemEmpenho: {
+		"Código Empenho",
+		"Categoria de Despesa",
+		"Grupo de Despesa",
+		"Modalidade de Aplicação",
+		"Elemento de Despesa",
+		"Descrição",
+		"Quantidade",
+		"Valor Unitário",
+		"Valor Total",
+		"Sequencial",
+		"Valor Atual",
+	},
+	DespesasItemEmpenhoHistorico: {
+		"Código Empenho",
+		"Sequencial",
+		"Tipo Operação",
+		"Data Operação",
+		"Quantidade Item",
+		"Valor Unitário Item",
+		"Valor Total Item",
+	},
+}
+
+var DataTypeNames = map[DataType]string{
+	DespesasEmpenho:                      "Despesas Empenho",
+	DespesasItemEmpenho:                  "Despesas Item Empenho",
+	DespesasItemEmpenhoHistorico:         "Despesas Item Empenho Histórico",
+	DespesasLiquidacao:                   "Despesas Liquidação",
+	DespesasPagamento:                    "Despesas Pagamento",
+	DespesasLiquidacaoEmpenhosImpactados: "Despesas Liquidação Empenhos Impactados",
+	DespesasPagamentoEmpenhosImpactados:  "Despesas Pagamento Empenhos Impactados",
+	DespesasPagamentoListaBancos:         "Despesas Pagamento Lista Bancos",
+	DespesasPagamentoListaFaturas:        "Despesas Pagamento Lista Faturas",
+	DespesasPagamentoListaPrecatorios:    "Despesas Pagamento Lista Precatórios",
+}
+
+type CommitmentItemHistory struct {
+	OperationType  string  `json:"operation_type"`
+	OperationDate  string  `json:"operation_date"`
+	ItemQuantity   int     `json:"item_quantity"`
+	ItemUnitPrice  float32 `json:"item_unit_price"`
+	ItemTotalPrice float32 `json:"item_total_price"`
+}
+type CommitmentItem struct {
+	ExpenseCategory    string                  `json:"expense_category"`
+	ExpenseGroup       string                  `json:"expense_group"`
+	AplicationModality string                  `json:"aplication_modality"`
+	ExpenseElement     string                  `json:"expense_element"`
+	Description        string                  `json:"description"`
+	Quantity           int                     `json:"quantity"`
+	Sequential         int                     `json:"sequential"`
+	UnitPrice          float32                 `json:"unit_price"`
+	CurrentValue       float32                 `json:"current_value"`
+	TotalPrice         float32                 `json:"total_price"`
+	History            []CommitmentItemHistory `json:"history"`
+}
+
+type Commitment struct {
+	CommitmentCode                string           `json:"commitment_code"`
+	ResumedCommitmentCode         string           `json:"resumed_commitment_code"`
+	EmitionDate                   string           `json:"emition_date"`
+	Type                          string           `json:"type"`
+	ManagementCode                string           `json:"management_code"`
+	ManagementName                string           `json:"management_name"`
+	FavoredCode                   string           `json:"favored_code"`
+	ExpenseNature                 string           `json:"expense_nature"`
+	CompleteExpenseNature         string           `json:"complete_expense_nature"`
+	BudgetPlan                    string           `json:"budget_plan"`
+	CommitmentOriginalValue       float32          `json:"commitment_original_value"`
+	CommitmentValueConvertedToBRL float32          `json:"commitment_value_converted_to_brl"`
+	ConversionValueUsed           float32          `json:"conversion_value_used"`
+	Items                         []CommitmentItem `json:"items"`
+}
+type UnitCommitments struct {
+	UgCode      string       `json:"ug_code"`
+	UgName      string       `json:"ug_name"`
+	Commitments []Commitment `json:"commitments"`
+}
 
 var PORTAL_TRANSPARENCIA_URL = "https://portaldatransparencia.gov.br/download-de-dados/despesas/"
 
@@ -212,6 +340,9 @@ func unzipFile(zipPath string, destDir string) ExtractionResult {
 	return ExtractionResult{Success: true, Data: DespesasEmpenho, OutputDir: destDir}
 }
 
+func mountCommitmentJsonPayload(dataframe dataframe.DataFrame, dataType DataType, currentPayload Commitment) ([]byte, error) {
+	return []byte{}, nil
+}
 func buildFilesForDate(date, dir string) map[DataType]string {
 	m := make(map[DataType]string, len(dataTypeSuffix))
 
@@ -250,79 +381,6 @@ func concatCompleteExpenseNature(originalDf dataframe.DataFrame) (dataframe.Data
 	return originalDf.Mutate(series.New(completeExpenseNature.Col("X0"), series.String, "Natureza de Despesa Completa")), nil
 }
 
-var columnsForDataType = map[DataType][]string{
-	DespesasPagamento: {
-		"Código Pagamento",
-		"Código Pagamento Resumido",
-		"Data Emissão",
-		"Código Tipo Documento",
-		"Tipo Documento",
-		"Tipo OB",
-		"Extraornamentário",
-		"Processo",
-		"Código Unidade Gestora",
-		"Unidade Gestora",
-		"Código Gestão",
-		"Gestão",
-		"Código Favorecido",
-		"Favorecido",
-		"Valor Original do Pagamento",
-		"Valor do Pagamento Convertido para R$",
-		"Valor Utilizado na Conversão",
-	},
-	DespesasLiquidacao: {
-		"Código Liquidação",
-		"Código Liquidação Resumido",
-		"Data Emissão",
-		"Código Tipo Documento",
-		"Tipo Documento",
-		"Código Unidade Gestora",
-		"Unidade Gestora",
-		"Código Gestão",
-		"Gestão",
-		"Código Favorecido",
-		"Favorecido",
-		"Observação",
-	},
-	DespesasEmpenho: {
-		"Código Empenho",
-		"Código Empenho Resumido",
-		"Data Emissão",
-		"Tipo Empenho",
-		"Código Unidade Gestora",
-		"Código Gestão",
-		"Gestão",
-		"Código Favorecido",
-		"Elemento de Despesa",
-		"Plano Orçamentário",
-		"Valor Original do Empenho",
-		"Valor do Empenho Convertido pra R$",
-		"Valor Utilizado na Conversão",
-	},
-	DespesasItemEmpenho: {
-		"Código Empenho",
-		"Categoria de Despesa",
-		"Grupo de Despesa",
-		"Modalidade de Aplicação",
-		"Elemento de Despesa",
-		"Descrição",
-		"Quantidade",
-		"Valor Unitário",
-		"Valor Total",
-		"Sequencial",
-		"Valor Atual",
-	},
-	DespesasItemEmpenhoHistorico: {
-		"Código Empenho",
-		"Sequencial",
-		"Tipo Operação",
-		"Data Operação",
-		"Quantidade Item",
-		"Valor Unitário Item",
-		"Valor Total Item",
-	},
-}
-
 func dataframeContainsExpenseNatureColumns(df dataframe.DataFrame) bool {
 	var expenseNatureCols = []string{"Código Categoria de Despesa", "Código Grupo de Despesa", "Código Modalidade de Aplicação", "Código Elemento de Despesa"}
 
@@ -343,7 +401,7 @@ func transformExpenses(df dataframe.DataFrame, dfType DataType) (dataframe.DataF
 		return dataframe.DataFrame{}, fmt.Errorf("unsupported data type for transformation: %v", dfType)
 	}
 
-	var result dataframe.DataFrame
+	result := df
 
 	if dataframeContainsExpenseNatureColumns(df) {
 		var err error
@@ -381,7 +439,7 @@ func findRows(df dataframe.DataFrame, dfType DataType, codes []string, codeColum
 		return
 	}
 
-	fmt.Printf("Found rows: %d\n", matchingRows.Nrow())
+	fmt.Printf("Found rows: %d\n for type: %s\n", matchingRows.Nrow(), DataTypeNames[dfType])
 	if matchingRows.Nrow() > 0 {
 		ch <- ExtractedDataframe{Dataframe: matchingRows, Type: dfType}
 	}
@@ -405,11 +463,16 @@ func OpenFileAndDecode(path string) (dataframe.DataFrame, error) {
 	if err != nil {
 		return dataframe.DataFrame{}, fmt.Errorf("failed to open file %s: %v", path, err)
 	}
+
 	defer file.Close()
 
 	// Using Windows1252 because it is the encoding used by the original CSV files
 	decoded := charmap.Windows1252.NewDecoder().Reader(file)
 	df := dataframe.ReadCSV(decoded, dataframe.WithDelimiter(';'), dataframe.WithLazyQuotes(true))
+	// If dataframe is empty return
+	if df.Nrow() == 0 {
+		return dataframe.DataFrame{}, fmt.Errorf("dataframe is empty")
+	}
 
 	return df, df.Error()
 }
@@ -473,7 +536,10 @@ func ExtractData(extractions []DayExtraction, unitsCode []string) {
 		}
 		transformed_dfs = append(transformed_dfs, transformedDf)
 	}
-
+	if len(transformed_dfs) == 0 {
+		log.Printf("No matching data found for extraction date %s", extractions[0].Date)
+		return
+	}
 	if res.Nrow() == 0 {
 		res = transformed_dfs[0]
 	}
@@ -483,7 +549,16 @@ func ExtractData(extractions []DayExtraction, unitsCode []string) {
 
 	var ugsCommitments []string
 	if len(transformed_dfs) > 0 {
-		ugsCommitments = transformed_dfs[0].Col("Código Empenho").Records()
+		hasCommitmentCol := false
+		for _, colName := range transformed_dfs[0].Names() {
+			if colName == "Código Empenho" {
+				hasCommitmentCol = true
+				break
+			}
+		}
+		if hasCommitmentCol {
+			ugsCommitments = transformed_dfs[0].Col("Código Empenho").Records()
+		}
 	}
 
 	// TO DO: Create logic for sub-extractions (items, items history, liquidations impacted, payments impacted)
@@ -515,9 +590,15 @@ func ExtractData(extractions []DayExtraction, unitsCode []string) {
 		res_2 = res_2.Concat(commitmentDfs[i])
 	}
 
-	saveDataFrame(res, "combined_data.csv")
-	saveDataFrame(res_2, "combined_commitment_data.csv")
+	// Merge main and commitment dataframes
+	err := createDirsIfNotExist("output")
+	if err != nil {
+		log.Fatalf("Failed to create output directory: %v", err)
+	}
 
+	if res.Nrow() > 0 {
+		saveDataFrame(res, fmt.Sprintf("output/combined_data_%s.csv", extractions[0].Date))
+	}
 	fmt.Printf("Combined DataFrame has %d rows and %d columns\n", res.Nrow(), res.Ncol())
 
 }
@@ -525,8 +606,10 @@ func ExtractData(extractions []DayExtraction, unitsCode []string) {
 func main() {
 	var url string
 	init_date := "2025-01-01"
-	end_date := "2025-01-02"
+	end_date := "2025-12-01"
 	dirs := []string{"tmp/zips", "tmp/data"}
+	MAX_CONCURRENT_EXTRACTIONS_DATA := 7
+	extractions_semaphore := make(chan struct{}, MAX_CONCURRENT_EXTRACTIONS_DATA)
 
 	for _, dir := range dirs {
 		err := createDirsIfNotExist(dir)
@@ -545,17 +628,17 @@ func main() {
 	}
 
 	var extractions []DayExtraction
-	mockedExtractions := []DayExtraction{
-		DayExtraction{
-			Date: "20250101",
-			Files: map[DataType]string{
-				DespesasEmpenho:              "tmp/data/despesas_20250101/20250101_Despesas_Empenho.csv",
-				DespesasItemEmpenho:          "tmp/data/despesas_20250101/20250101_Despesas_ItemEmpenho.csv",
-				DespesasLiquidacao:           "tmp/data/despesas_20250101/20250101_Despesas_Liquidacao.csv",
-				DespesasItemEmpenhoHistorico: "tmp/data/despesas_20250101/20250101_Despesas_ItemEmpenhoHistorico.csv",
-			},
-		},
-	}
+	// mockedExtractions := []DayExtraction{
+	// 	{
+	// 		Date: "20250101",
+	// 		Files: map[DataType]string{
+	// 			DespesasEmpenho:              "tmp/data/despesas_20250101/20250101_Despesas_Empenho.csv",
+	// 			DespesasItemEmpenho:          "tmp/data/despesas_20250101/20250101_Despesas_ItemEmpenho.csv",
+	// 			DespesasLiquidacao:           "tmp/data/despesas_20250101/20250101_Despesas_Liquidacao.csv",
+	// 			DespesasItemEmpenhoHistorico: "tmp/data/despesas_20250101/20250101_Despesas_ItemEmpenhoHistorico.csv",
+	// 		},
+	// 	},
+	// }
 
 	var mu sync.Mutex
 
@@ -567,18 +650,18 @@ func main() {
 		wg.Add(1)
 		go func(u, d string) {
 			defer wg.Done()
-			// download := fetchData(u, d)
-			mockedDownload := DownloadResult{
-				Success:    true,
-				OutputPath: "tmp/zips/despesas_" + d + ".zip",
-			}
+			download := fetchData(u, d)
+			// mockedDownload := DownloadResult{
+			// 	Success:    true,
+			// 	OutputPath: "tmp/zips/despesas_" + d + ".zip",
+			// }
 
-			if !mockedDownload.Success {
+			if !download.Success {
 				log.Printf("Download failed for date %s\n", d)
 				return
 			}
 
-			extraction := unzipFile(mockedDownload.OutputPath, "tmp/data/despesas_"+d)
+			extraction := unzipFile(download.OutputPath, "tmp/data/despesas_"+d)
 
 			if !extraction.Success {
 				log.Printf("Extraction failed for date %s\n", d)
@@ -597,6 +680,19 @@ func main() {
 	}
 	wg.Wait()
 	// BulkExtractCommitments(mockedExtractions, []string{"158454"})
-	ExtractData(mockedExtractions, []string{"155230"})
+	// Create a goroutine for each day
+	for _, extraction := range extractions {
+		wg.Add(1)
+		go func(ex DayExtraction) {
+			defer wg.Done()
+			extractions_semaphore <- struct{}{}
 
+			//Memory intensive
+			ExtractData([]DayExtraction{ex}, []string{"158454"})
+
+			<-extractions_semaphore
+		}(extraction)
+	}
+
+	wg.Wait()
 }
