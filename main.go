@@ -696,45 +696,52 @@ func ExtractData(extractions []DayExtraction, unitsCode []string) (*CommitmentPa
 			}
 		}
 	}
-	fmt.Println("Empenhos DataFrame:")
-	fmt.Println(empenhosDf.Nrow())
-	if empenhosDf.Nrow() == 0 {
-		return nil, fmt.Errorf("no matching data found for extraction date %s", extractions[0].Date)
+
+	// Check if we have ANY data at all
+	hasAnyData := empenhosDf.Nrow() > 0 || liquidacoesDf.Nrow() > 0 || pagamentosDf.Nrow() > 0
+	if !hasAnyData {
+		return nil, fmt.Errorf("no matching data found for extraction date %s", extractionDate)
 	}
 
-	// Get commitment codes for sub-extraction
-	ugsCommitments := empenhosDf.Col("Código Empenho").Records()
-
-	// Extract commitment items and history
-	extractions = filterExtractionsByColumn(extractions, hasCommitmentCodeAsColumn,
-		ugsCommitments, "Código Empenho", commitmentMatches, &wg)
-	wg.Wait()
-	close(commitmentMatches)
-
+	// Only extract commitment items if we have commitments
 	itemsDf := dataframe.DataFrame{}
 	historyDf := dataframe.DataFrame{}
 
-	for extracted := range commitmentMatches {
-		transformedDf, err := transformExpenses(extracted.Dataframe, extracted.Type)
-		if err != nil {
-			log.Printf("Error transforming DataFrame for type %v: %v", extracted.Type, err)
-			continue
-		}
+	if empenhosDf.Nrow() > 0 {
+		// Get commitment codes for sub-extraction
+		ugsCommitments := empenhosDf.Col("Código Empenho").Records()
 
-		switch extracted.Type {
-		case DespesasItemEmpenho:
-			if itemsDf.Nrow() == 0 {
-				itemsDf = transformedDf
-			} else {
-				itemsDf = itemsDf.Concat(transformedDf)
+		// Extract commitment items and history
+		extractions = filterExtractionsByColumn(extractions, hasCommitmentCodeAsColumn,
+			ugsCommitments, "Código Empenho", commitmentMatches, &wg)
+		wg.Wait()
+		close(commitmentMatches)
+
+		for extracted := range commitmentMatches {
+			transformedDf, err := transformExpenses(extracted.Dataframe, extracted.Type)
+			if err != nil {
+				log.Printf("Error transforming DataFrame for type %v: %v", extracted.Type, err)
+				continue
 			}
-		case DespesasItemEmpenhoHistorico:
-			if historyDf.Nrow() == 0 {
-				historyDf = transformedDf
-			} else {
-				historyDf = historyDf.Concat(transformedDf)
+
+			switch extracted.Type {
+			case DespesasItemEmpenho:
+				if itemsDf.Nrow() == 0 {
+					itemsDf = transformedDf
+				} else {
+					itemsDf = itemsDf.Concat(transformedDf)
+				}
+			case DespesasItemEmpenhoHistorico:
+				if historyDf.Nrow() == 0 {
+					historyDf = transformedDf
+				} else {
+					historyDf = historyDf.Concat(transformedDf)
+				}
 			}
 		}
+	} else {
+		// Close the channel since we won't use it
+		close(commitmentMatches)
 	}
 
 	// Build the hierarchical JSON structure
@@ -746,10 +753,8 @@ func ExtractData(extractions []DayExtraction, unitsCode []string) (*CommitmentPa
 	// Group by Unit Code
 	unitMap := make(map[string]*UnitCommitments)
 
-	// Process commitments (empenhos)
-	for i := 0; i < empenhosDf.Nrow(); i++ {
-		ugCode := empenhosDf.Col("Código Unidade Gestora").Elem(i).String()
-		ugName := empenhosDf.Col("Unidade Gestora").Elem(i).String()
+	// Helper to get or create unit entry
+	getOrCreateUnit := func(ugCode, ugName string) *UnitCommitments {
 		if _, exists := unitMap[ugCode]; !exists {
 			unitMap[ugCode] = &UnitCommitments{
 				UgCode:       ugCode,
@@ -759,6 +764,18 @@ func ExtractData(extractions []DayExtraction, unitsCode []string) (*CommitmentPa
 				Payments:     []Payment{},
 			}
 		}
+		// Update name if it was empty
+		if unitMap[ugCode].UgName == "" && ugName != "" {
+			unitMap[ugCode].UgName = ugName
+		}
+		return unitMap[ugCode]
+	}
+
+	// Process commitments (empenhos)
+	for i := 0; i < empenhosDf.Nrow(); i++ {
+		ugCode := empenhosDf.Col("Código Unidade Gestora").Elem(i).String()
+		ugName := empenhosDf.Col("Unidade Gestora").Elem(i).String()
+		unit := getOrCreateUnit(ugCode, ugName)
 
 		commitment := dfRowToCommitment(empenhosDf, i)
 
@@ -787,41 +804,27 @@ func ExtractData(extractions []DayExtraction, unitsCode []string) (*CommitmentPa
 			}
 		}
 
-		unitMap[ugCode].Commitments = append(unitMap[ugCode].Commitments, commitment)
+		unit.Commitments = append(unit.Commitments, commitment)
 	}
 
 	// Process liquidations
 	for i := 0; i < liquidacoesDf.Nrow(); i++ {
 		ugCode := liquidacoesDf.Col("Código Unidade Gestora").Elem(i).String()
-
-		if _, exists := unitMap[ugCode]; !exists {
-			unitMap[ugCode] = &UnitCommitments{
-				UgCode:       ugCode,
-				Commitments:  []Commitment{},
-				Liquidations: []Liquidation{},
-				Payments:     []Payment{},
-			}
-		}
+		ugName := liquidacoesDf.Col("Unidade Gestora").Elem(i).String()
+		unit := getOrCreateUnit(ugCode, ugName)
 
 		liquidation := dfRowToLiquidation(liquidacoesDf, i)
-		unitMap[ugCode].Liquidations = append(unitMap[ugCode].Liquidations, liquidation)
+		unit.Liquidations = append(unit.Liquidations, liquidation)
 	}
 
 	// Process payments
 	for i := 0; i < pagamentosDf.Nrow(); i++ {
 		ugCode := pagamentosDf.Col("Código Unidade Gestora").Elem(i).String()
-
-		if _, exists := unitMap[ugCode]; !exists {
-			unitMap[ugCode] = &UnitCommitments{
-				UgCode:       ugCode,
-				Commitments:  []Commitment{},
-				Liquidations: []Liquidation{},
-				Payments:     []Payment{},
-			}
-		}
+		ugName := pagamentosDf.Col("Unidade Gestora").Elem(i).String()
+		unit := getOrCreateUnit(ugCode, ugName)
 
 		payment := dfRowToPayment(pagamentosDf, i)
-		unitMap[ugCode].Payments = append(unitMap[ugCode].Payments, payment)
+		unit.Payments = append(unit.Payments, payment)
 	}
 
 	// Convert map to slice
@@ -835,7 +838,7 @@ func ExtractData(extractions []DayExtraction, unitsCode []string) (*CommitmentPa
 func main() {
 	var url string
 	init_date := "2025-01-16"
-	end_date := "2025-01-16"
+	end_date := "2025-02-16"
 	dirs := []string{"tmp/zips", "tmp/data"}
 	MAX_CONCURRENT_EXTRACTIONS_DATA := 7
 	extractions_semaphore := make(chan struct{}, MAX_CONCURRENT_EXTRACTIONS_DATA)
@@ -919,7 +922,7 @@ func main() {
 			defer func() { <-extractions_semaphore }()
 
 			//Memory intensive
-			payload, err := ExtractData([]DayExtraction{ex}, []string{"158454"})
+			payload, err := ExtractData([]DayExtraction{ex}, []string{"158454", "158148", "158341", "158342", "158343", "158345", "158376", "158332", "158533", "158635", "158636"})
 			if err != nil {
 				log.Printf("Error extracting data for date and type %s: %v\n", ex.Date, err)
 				return
