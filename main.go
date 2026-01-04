@@ -3,12 +3,14 @@ package main
 import (
 	"archive/zip"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +19,146 @@ import (
 	"github.com/go-gota/gota/series"
 	"golang.org/x/text/encoding/charmap"
 )
+
+// LogLevel represents the severity of a log message
+type LogLevel int
+
+const (
+	LevelDebug LogLevel = iota
+	LevelInfo
+	LevelWarn
+	LevelError
+)
+
+var logLevelNames = map[LogLevel]string{
+	LevelDebug: "DEBUG",
+	LevelInfo:  "INFO",
+	LevelWarn:  "WARN",
+	LevelError: "ERROR",
+}
+
+// Logger provides structured logging with levels
+type Logger struct {
+	minLevel LogLevel
+	mu       sync.Mutex
+}
+
+var appLogger = &Logger{minLevel: LevelInfo}
+
+// SetLogLevel sets the minimum log level
+func (l *Logger) SetLogLevel(level LogLevel) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.minLevel = level
+}
+
+func (l *Logger) log(level LogLevel, component, message string, args ...interface{}) {
+	if level < l.minLevel {
+		return
+	}
+
+	timestamp := time.Now().Format("2006-01-02 15:04:05.000")
+	levelStr := logLevelNames[level]
+	formattedMsg := fmt.Sprintf(message, args...)
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if component != "" {
+		log.Printf("[%s] [%s] [%s] %s", timestamp, levelStr, component, formattedMsg)
+	} else {
+		log.Printf("[%s] [%s] %s", timestamp, levelStr, formattedMsg)
+	}
+}
+
+// Debug logs a debug message
+func (l *Logger) Debug(component, message string, args ...interface{}) {
+	l.log(LevelDebug, component, message, args...)
+}
+
+// Info logs an info message
+func (l *Logger) Info(component, message string, args ...interface{}) {
+	l.log(LevelInfo, component, message, args...)
+}
+
+// Warn logs a warning message
+func (l *Logger) Warn(component, message string, args ...interface{}) {
+	l.log(LevelWarn, component, message, args...)
+}
+
+// Error logs an error message
+func (l *Logger) Error(component, message string, args ...interface{}) {
+	l.log(LevelError, component, message, args...)
+}
+
+// Fatal logs an error message and exits
+func (l *Logger) Fatal(component, message string, args ...interface{}) {
+	l.log(LevelError, component, message, args...)
+	os.Exit(1)
+}
+
+type ProfilerStats struct {
+	PeakGoroutines int
+	PeakMemoryMB   uint64
+}
+
+type MemoryMonitor struct {
+	mu    sync.Mutex
+	stats ProfilerStats
+	stop  chan struct{}
+}
+
+func NewMonitor() *MemoryMonitor {
+	return &MemoryMonitor{
+		stop: make(chan struct{}),
+	}
+}
+
+func (m *MemoryMonitor) Start(interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				m.update()
+			case <-m.stop:
+				return
+			}
+		}
+
+	}()
+}
+
+func (m *MemoryMonitor) update() {
+	const component = "Monitor"
+
+	var mStats runtime.MemStats
+	runtime.ReadMemStats(&mStats)
+
+	currentGoroutines := runtime.NumGoroutine()
+	currentMemoryMB := mStats.Alloc / 1024 / 1024
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if currentGoroutines > m.stats.PeakGoroutines {
+		m.stats.PeakGoroutines = currentGoroutines
+	}
+	if currentMemoryMB > m.stats.PeakMemoryMB {
+		m.stats.PeakMemoryMB = currentMemoryMB
+	}
+
+	appLogger.Debug(component, "goroutines=%d memoryMB=%d peakGoroutines=%d peakMemoryMB=%d", currentGoroutines, currentMemoryMB, m.stats.PeakGoroutines, m.stats.PeakMemoryMB)
+}
+
+func (m *MemoryMonitor) Stop() ProfilerStats {
+	close(m.stop)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.stats
+}
 
 type DataType int
 
@@ -268,8 +410,24 @@ func createDirsIfNotExist(dirPath string) error {
 	return nil
 }
 
+func clearTempDirs() {
+	const component = "TempCleaner"
+	dirs := []string{"tmp/zips", "tmp/data"}
+	for _, dir := range dirs {
+		err := os.RemoveAll(dir)
+		if err != nil {
+			appLogger.Warn(component, "Failed to clear temp dir: dir=%s error=%v", dir, err)
+		} else {
+			appLogger.Info(component, "Temp dir cleared: dir=%s", dir)
+		}
+	}
+}
+
 func fetchData(downloadUrl string, date string) DownloadResult {
+	const component = "Downloader"
 	output_path := "tmp/zips/despesas_" + date + ".zip"
+
+	appLogger.Debug(component, "Starting download for date=%s url=%s", date, downloadUrl)
 
 	client := &http.Client{}
 
@@ -280,38 +438,39 @@ func fetchData(downloadUrl string, date string) DownloadResult {
 	// Create a new request with a custom User-Agent header
 	req, err := http.NewRequest(http.MethodGet, downloadUrl, nil)
 	if err != nil {
-		log.Fatalf("Failed to create request: %v", err)
+		appLogger.Error(component, "Failed to create HTTP request: date=%s error=%v", date, err)
 		return DownloadResult{Success: false}
 	}
 
 	resp, err := client.Do(req)
 
 	if err != nil {
-		log.Fatalf("Failed to fetch data: %v", err)
+		appLogger.Error(component, "HTTP request failed: date=%s error=%v", date, err)
 		return DownloadResult{Success: false}
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Fatalf("Failed to fetch data: %s", resp.Status)
+		appLogger.Warn(component, "Non-OK HTTP response: date=%s status=%s statusCode=%d", date, resp.Status, resp.StatusCode)
 		return DownloadResult{Success: false}
 	}
 
 	out, err := os.Create(output_path)
 
 	if err != nil {
-		log.Fatalf("Failed to create file: %v", err)
+		appLogger.Error(component, "Failed to create output file: date=%s path=%s error=%v", date, output_path, err)
 		return DownloadResult{Success: false}
 	}
 	defer out.Close()
 
-	_, err = io.Copy(out, resp.Body)
+	bytesWritten, err := io.Copy(out, resp.Body)
 	if err != nil {
-		log.Fatalf("Failed to write data to file: %v", err)
+		appLogger.Error(component, "Failed to write data to file: date=%s error=%v", date, err)
 		return DownloadResult{Success: false}
 	}
 
+	appLogger.Info(component, "Download completed: date=%s path=%s size=%d bytes", date, output_path, bytesWritten)
 	return DownloadResult{Success: true, OutputPath: output_path}
 }
 
@@ -327,52 +486,66 @@ func isFileUsed(filename string) bool {
 }
 
 func unzipFile(zipPath string, destDir string) ExtractionResult {
+	const component = "Unzipper"
 
 	if destDir == "" {
 		destDir = "tmp/data"
 	}
 
+	appLogger.Debug(component, "Starting extraction: zipPath=%s destDir=%s", zipPath, destDir)
+
 	err := os.MkdirAll(destDir, os.ModePerm)
 	if err != nil {
-		log.Fatalf("Failed to create directory: %v", err)
+		appLogger.Error(component, "Failed to create directory: destDir=%s error=%v", destDir, err)
 		return ExtractionResult{Success: false}
 	}
 
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
-		log.Fatalf("Failed to open zip file: %v", err)
+		appLogger.Error(component, "Failed to open zip file: zipPath=%s error=%v", zipPath, err)
 		return ExtractionResult{Success: false}
 	}
 	defer r.Close()
+
+	extractedCount := 0
+	skippedCount := 0
 
 	for _, f := range r.File {
 		filePath := filepath.Join(destDir, f.Name)
 
 		if !strings.HasPrefix(filePath, filepath.Clean(destDir)+string(os.PathSeparator)) {
+			appLogger.Error(component, "Invalid file path detected (possible zip slip): file=%s", f.Name)
 			return ExtractionResult{Success: false}
 		}
 
 		if !isFileUsed(f.Name) {
+			skippedCount++
+			appLogger.Debug(component, "Skipping unused file: file=%s", f.Name)
 			continue
 		}
 
 		destFile, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
 		if err != nil {
+			appLogger.Error(component, "Failed to create destination file: file=%s error=%v", filePath, err)
 			return ExtractionResult{Success: false}
 		}
 		defer destFile.Close()
 
 		zippedFile, err := f.Open()
 		if err != nil {
+			appLogger.Error(component, "Failed to open zipped file: file=%s error=%v", f.Name, err)
 			return ExtractionResult{Success: false}
 		}
 		defer zippedFile.Close()
 
 		if _, err := io.Copy(destFile, zippedFile); err != nil {
+			appLogger.Error(component, "Failed to extract file: file=%s error=%v", f.Name, err)
 			return ExtractionResult{Success: false}
 		}
-
+		extractedCount++
 	}
+
+	appLogger.Info(component, "Extraction completed: destDir=%s extractedFiles=%d skippedFiles=%d", destDir, extractedCount, skippedCount)
 	return ExtractionResult{Success: true, Data: DespesasEmpenho, OutputDir: destDir}
 }
 
@@ -383,20 +556,6 @@ func buildFilesForDate(date, dir string) map[DataType]string {
 		m[dt] = filepath.Join(dir, date+suffix)
 	}
 	return m
-}
-
-func saveDataFrame(df dataframe.DataFrame, filename string) error {
-	f, err := os.Create(filename)
-	if err != nil {
-		return fmt.Errorf("error creating file: %v", err)
-	}
-	defer f.Close()
-
-	if err := df.WriteCSV(f); err != nil {
-		return fmt.Errorf("error writing CSV: %v", err)
-	}
-
-	return nil
 }
 
 func concatCompleteExpenseNature(originalDf dataframe.DataFrame) (dataframe.DataFrame, error) {
@@ -454,8 +613,10 @@ func transformExpenses(df dataframe.DataFrame, dfType DataType) (dataframe.DataF
 }
 
 func findRows(df dataframe.DataFrame, dfType DataType, codes []string, codeColumn string, date string, ch chan ExtractedDataframe, wg *sync.WaitGroup) {
+	const component = "DataFilter"
 	defer wg.Done()
-	log.Printf("Searching for %s codes: %v", codeColumn, codes)
+
+	appLogger.Debug(component, "Starting row search: date=%s type=%s column=%s codesCount=%d", date, DataTypeNames[dfType], codeColumn, len(codes))
 
 	filter := dataframe.F{
 		Colname:    codeColumn,
@@ -468,23 +629,14 @@ func findRows(df dataframe.DataFrame, dfType DataType, codes []string, codeColum
 	)
 
 	if df.Error() != nil {
-		log.Printf("Error filtering DataFrame: %v", df.Error())
+		appLogger.Error(component, "DataFrame filter error: date=%s type=%s error=%v", date, DataTypeNames[dfType], df.Error())
 		return
 	}
 
-	fmt.Printf("%s Found rows: %d\n for type: %s\n", date, matchingRows.Nrow(), DataTypeNames[dfType])
+	appLogger.Info(component, "Row search completed: date=%s type=%s matchingRows=%d", date, DataTypeNames[dfType], matchingRows.Nrow())
 	if matchingRows.Nrow() > 0 {
 		ch <- ExtractedDataframe{Dataframe: matchingRows, Type: dfType}
 	}
-
-}
-
-// Future improvements
-func removeExtraction(sl []DayExtraction, idx int) []DayExtraction {
-	if idx < 0 || idx >= len(sl) {
-		return sl
-	}
-	return append(sl[:idx], sl[idx+1:]...)
 }
 
 func FindCommitmentItemsHistory(commitments []string) []CommitmentItems {
@@ -492,8 +644,13 @@ func FindCommitmentItemsHistory(commitments []string) []CommitmentItems {
 }
 
 func OpenFileAndDecode(path string) (dataframe.DataFrame, error) {
+	const component = "FileDecoder"
+
+	appLogger.Debug(component, "Opening file: path=%s", path)
+
 	file, err := os.Open(path)
 	if err != nil {
+		appLogger.Error(component, "Failed to open file: path=%s error=%v", path, err)
 		return dataframe.DataFrame{}, fmt.Errorf("failed to open file %s: %v", path, err)
 	}
 
@@ -504,30 +661,44 @@ func OpenFileAndDecode(path string) (dataframe.DataFrame, error) {
 	df := dataframe.ReadCSV(decoded, dataframe.WithDelimiter(';'), dataframe.WithLazyQuotes(true))
 	// If dataframe is empty return
 	if df.Nrow() == 0 {
+		appLogger.Warn(component, "Empty dataframe loaded: path=%s", path)
 		return dataframe.DataFrame{}, fmt.Errorf("dataframe is empty")
 	}
 
+	appLogger.Debug(component, "File decoded successfully: path=%s rows=%d cols=%d", path, df.Nrow(), df.Ncol())
 	return df, df.Error()
 }
 
 func filterExtractionsByColumn(extractions []DayExtraction, dataTypes []DataType, codes []string, matchColumn string, chToRelease chan ExtractedDataframe, wg *sync.WaitGroup) []DayExtraction {
-	fmt.Printf("Filtering extractions by column and types: %s %v\n", matchColumn, dataTypes)
+	const component = "ExtractionFilter"
+
+	dataTypeNames := make([]string, len(dataTypes))
+	for i, dt := range dataTypes {
+		dataTypeNames[i] = DataTypeNames[dt]
+	}
+	appLogger.Info(component, "Starting extraction filter: column=%s dataTypes=%v extractionsCount=%d", matchColumn, dataTypeNames, len(extractions))
+
+	processedFiles := 0
 	for _, e := range extractions {
 		for _, dt := range dataTypes {
 			if p, ok := e.Files[dt]; ok {
+				appLogger.Debug(component, "Processing file: date=%s type=%s path=%s", e.Date, DataTypeNames[dt], p)
 				df, err := OpenFileAndDecode(p)
 				if err != nil {
-					log.Printf("Failed to open and decode file %s: %v", p, err)
+					appLogger.Warn(component, "Failed to open/decode file: date=%s type=%s path=%s error=%v", e.Date, DataTypeNames[dt], p, err)
 					continue
 				}
 				wg.Add(1)
 				go findRows(df, dt, codes, matchColumn, e.Date, chToRelease, wg)
+				processedFiles++
 
 				//Remove the actual index to not process it again
 				delete(e.Files, dt)
 			}
 		}
 	}
+
+	appLogger.Info(component, "Extraction filter completed: processedFiles=%d", processedFiles)
 	return extractions
 }
 
@@ -612,7 +783,7 @@ func dfRowToCommitmentItem(df dataframe.DataFrame, rowIdx int) CommitmentItem {
 		AplicationModality: getStr("Modalidade de Aplicação"),
 		ExpenseElement:     getStr("Elemento de Despesa"),
 		Description:        getStr("Descrição"),
-		Sequential:         0, // Parse from string if needed
+		Sequential:         0,
 		History:            []CommitmentItemHistory{},
 	}
 }
@@ -641,8 +812,11 @@ func containsString(slice []string, s string) bool {
 }
 
 func ExtractData(extractions []DayExtraction, unitsCode []string) (*CommitmentPayload, error) {
+	const component = "DataExtractor"
 	var wg sync.WaitGroup
 	extractionDate := extractions[0].Date
+
+	appLogger.Info(component, "Starting data extraction: date=%s unitsCount=%d", extractionDate, len(unitsCode))
 
 	mainMatches := make(chan ExtractedDataframe, 3)
 	commitmentMatches := make(chan ExtractedDataframe, 3)
@@ -658,6 +832,7 @@ func ExtractData(extractions []DayExtraction, unitsCode []string) (*CommitmentPa
 		DespesasItemEmpenhoHistorico,
 	}
 
+	appLogger.Debug(component, "Phase 1: Filtering by UG codes: date=%s", extractionDate)
 	// First, find all Commitments based in Unit Codes
 	extractions = filterExtractionsByColumn(extractions, hasUgCodeAsColumn, unitsCode, "Código Unidade Gestora", mainMatches, &wg)
 	wg.Wait()
@@ -671,9 +846,11 @@ func ExtractData(extractions []DayExtraction, unitsCode []string) (*CommitmentPa
 	for extracted := range mainMatches {
 		transformedDf, err := transformExpenses(extracted.Dataframe, extracted.Type)
 		if err != nil {
-			log.Printf("Error transforming DataFrame for type %v: %v", DataTypeNames[extracted.Type], err)
+			appLogger.Error(component, "DataFrame transformation error: date=%s type=%s error=%v", extractionDate, DataTypeNames[extracted.Type], err)
 			continue
 		}
+
+		appLogger.Debug(component, "DataFrame transformed: date=%s type=%s rows=%d", extractionDate, DataTypeNames[extracted.Type], transformedDf.Nrow())
 
 		switch extracted.Type {
 		case DespesasEmpenho:
@@ -699,7 +876,10 @@ func ExtractData(extractions []DayExtraction, unitsCode []string) (*CommitmentPa
 
 	// Check if we have ANY data at all
 	hasAnyData := empenhosDf.Nrow() > 0 || liquidacoesDf.Nrow() > 0 || pagamentosDf.Nrow() > 0
+	appLogger.Info(component, "Phase 1 completed: date=%s empenhos=%d liquidacoes=%d pagamentos=%d", extractionDate, empenhosDf.Nrow(), liquidacoesDf.Nrow(), pagamentosDf.Nrow())
+
 	if !hasAnyData {
+		appLogger.Warn(component, "No matching data found: date=%s", extractionDate)
 		return nil, fmt.Errorf("no matching data found for extraction date %s", extractionDate)
 	}
 
@@ -710,6 +890,7 @@ func ExtractData(extractions []DayExtraction, unitsCode []string) (*CommitmentPa
 	if empenhosDf.Nrow() > 0 {
 		// Get commitment codes for sub-extraction
 		ugsCommitments := empenhosDf.Col("Código Empenho").Records()
+		appLogger.Debug(component, "Phase 2: Extracting commitment items: date=%s commitmentCodes=%d", extractionDate, len(ugsCommitments))
 
 		// Extract commitment items and history
 		extractions = filterExtractionsByColumn(extractions, hasCommitmentCodeAsColumn,
@@ -720,7 +901,7 @@ func ExtractData(extractions []DayExtraction, unitsCode []string) (*CommitmentPa
 		for extracted := range commitmentMatches {
 			transformedDf, err := transformExpenses(extracted.Dataframe, extracted.Type)
 			if err != nil {
-				log.Printf("Error transforming DataFrame for type %v: %v", extracted.Type, err)
+				appLogger.Error(component, "Commitment items transformation error: date=%s type=%s error=%v", extractionDate, DataTypeNames[extracted.Type], err)
 				continue
 			}
 
@@ -739,7 +920,9 @@ func ExtractData(extractions []DayExtraction, unitsCode []string) (*CommitmentPa
 				}
 			}
 		}
+		appLogger.Info(component, "Phase 2 completed: date=%s items=%d history=%d", extractionDate, itemsDf.Nrow(), historyDf.Nrow())
 	} else {
+		appLogger.Debug(component, "Skipping Phase 2 (no commitments): date=%s", extractionDate)
 		// Close the channel since we won't use it
 		close(commitmentMatches)
 	}
@@ -832,71 +1015,97 @@ func ExtractData(extractions []DayExtraction, unitsCode []string) (*CommitmentPa
 		payload.UnitCommitments = append(payload.UnitCommitments, *unit)
 	}
 
+	appLogger.Info(component, "Extraction completed: date=%s unitsProcessed=%d", extractionDate, len(payload.UnitCommitments))
 	return payload, nil
 }
 
 func main() {
+	const component = "Main"
+	monitor := NewMonitor()
+	monitor.Start(100 * time.Millisecond)
+
+	// Configure log output format
+	log.SetFlags(0) // Remove default timestamp since we add our own
+
 	var url string
-	init_date := "2025-01-16"
-	end_date := "2025-02-16"
+	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+	initDatePtr := flag.String("init", yesterday, "Initial date for data extraction")
+	endDatePtr := flag.String("end", yesterday, "End date for data extraction")
+	ugsPtr := flag.String("ugs", "158454,158148,158341,158342,158343,158345,158376,158332,158533,158635,158636", "Comma-separated list of Unit Codes to extract")
+	logLevelPtr := flag.String("loglevel", "info", "Log level: debug, info, warn, error")
+	flag.Parse()
+
+	// Set log level based on flag
+	switch strings.ToLower(*logLevelPtr) {
+	case "debug":
+		appLogger.SetLogLevel(LevelDebug)
+	case "info":
+		appLogger.SetLogLevel(LevelInfo)
+	case "warn":
+		appLogger.SetLogLevel(LevelWarn)
+	case "error":
+		appLogger.SetLogLevel(LevelError)
+	default:
+		appLogger.SetLogLevel(LevelInfo)
+	}
+
+	init_date := *initDatePtr
+	end_date := *endDatePtr
+	ugs := strings.Split(*ugsPtr, ",")
+
+	appLogger.Info(component, "Application started: initDate=%s endDate=%s ugsCount=%d logLevel=%s", init_date, end_date, len(ugs), *logLevelPtr)
+
+	// Create necessary directories
 	dirs := []string{"tmp/zips", "tmp/data"}
 	MAX_CONCURRENT_EXTRACTIONS_DATA := 7
 	extractions_semaphore := make(chan struct{}, MAX_CONCURRENT_EXTRACTIONS_DATA)
 
+	appLogger.Debug(component, "Creating required directories: dirs=%v", dirs)
 	for _, dir := range dirs {
 		err := createDirsIfNotExist(dir)
 		if err != nil {
-			log.Fatalf("Failed to create directory %s: %v", dir, err)
+			appLogger.Fatal(component, "Failed to create directory: dir=%s error=%v", dir, err)
 		}
 	}
 
 	init_parsed_date, err := time.Parse(time.DateOnly, init_date)
 	if err != nil {
-		log.Fatal(err)
+		appLogger.Fatal(component, "Invalid init date format: date=%s error=%v", init_date, err)
 	}
 	end_parsed_date, err := time.Parse(time.DateOnly, end_date)
 	if err != nil {
-		log.Fatal(err)
+		appLogger.Fatal(component, "Invalid end date format: date=%s error=%v", end_date, err)
 	}
 
 	var extractions []DayExtraction
-	// mockedExtractions := []DayExtraction{
-	// 	{
-	// 		Date: "20250101",
-	// 		Files: map[DataType]string{
-	// 			DespesasEmpenho:              "tmp/data/despesas_20250101/20250101_Despesas_Empenho.csv",
-	// 			DespesasItemEmpenho:          "tmp/data/despesas_20250101/20250101_Despesas_ItemEmpenho.csv",
-	// 			DespesasLiquidacao:           "tmp/data/despesas_20250101/20250101_Despesas_Liquidacao.csv",
-	// 			DespesasItemEmpenhoHistorico: "tmp/data/despesas_20250101/20250101_Despesas_ItemEmpenhoHistorico.csv",
-	// 		},
-	// 	},
-	// }
 
 	var mu sync.Mutex
 
 	var wg sync.WaitGroup
 
+	appLogger.Info(component, "Starting download phase")
+	downloadCount := 0
 	for !init_parsed_date.After(end_parsed_date) {
 		init_date = init_parsed_date.Format("20060102")
 		url = PORTAL_TRANSPARENCIA_URL + init_date
 		wg.Add(1)
+		downloadCount++
 		go func(u, d string) {
 			defer wg.Done()
 			download := fetchData(u, d)
-			// mockedDownload := DownloadResult{
-			// 	Success:    true,
-			// 	OutputPath: "tmp/zips/despesas_" + d + ".zip",
-			// }
+			var extraction ExtractionResult
 
 			if !download.Success {
-				log.Printf("Download failed for date %s\n", d)
+				appLogger.Warn(component, "Download failed: date=%s", d)
 				return
 			}
 
-			extraction := unzipFile(download.OutputPath, "tmp/data/despesas_"+d)
+			if download.OutputPath != "" {
+				extraction = unzipFile(download.OutputPath, "tmp/data/despesas_"+d)
+			}
 
 			if !extraction.Success {
-				log.Printf("Extraction failed for date %s\n", d)
+				appLogger.Warn(component, "Extraction failed: date=%s", d)
 				return
 			}
 
@@ -905,15 +1114,18 @@ func main() {
 			mu.Lock()
 			extractions = append(extractions, DayExtraction{Date: d, Files: files})
 			mu.Unlock()
-			fmt.Printf("Data for date %s successfully extracted to %s\n", d, extraction.OutputDir)
+			appLogger.Info(component, "Day extraction ready: date=%s outputDir=%s", d, extraction.OutputDir)
 
 		}(url, init_date)
 		init_parsed_date = init_parsed_date.AddDate(0, 0, 1)
 	}
+	appLogger.Info(component, "Waiting for downloads to complete: totalDays=%d", downloadCount)
 	wg.Wait()
-	// BulkExtractCommitments(mockedExtractions, []string{"158454"})
+
 	// Create a goroutine for each day
 	createDirsIfNotExist("output")
+	appLogger.Info(component, "Starting data processing phase: extractionsReady=%d maxConcurrent=%d", len(extractions), MAX_CONCURRENT_EXTRACTIONS_DATA)
+
 	for _, extraction := range extractions {
 		wg.Add(1)
 		go func(ex DayExtraction) {
@@ -921,27 +1133,32 @@ func main() {
 			extractions_semaphore <- struct{}{}
 			defer func() { <-extractions_semaphore }()
 
+			appLogger.Debug(component, "Processing extraction: date=%s", ex.Date)
+
 			//Memory intensive
-			payload, err := ExtractData([]DayExtraction{ex}, []string{"158454", "158148", "158341", "158342", "158343", "158345", "158376", "158332", "158533", "158635", "158636"})
+			payload, err := ExtractData([]DayExtraction{ex}, ugs)
 			if err != nil {
-				log.Printf("Error extracting data for date and type %s: %v\n", ex.Date, err)
+				appLogger.Warn(component, "Data extraction skipped: date=%s reason=%v", ex.Date, err)
 				return
 			}
+
 			jsonData, err := json.Marshal(payload)
 			if err != nil {
-				log.Printf("Error marshaling JSON for date %s: %v\n", ex.Date, err)
-				<-extractions_semaphore
+				appLogger.Error(component, "JSON marshaling failed: date=%s error=%v", ex.Date, err)
 				return
 			}
+
 			outputPath := fmt.Sprintf("output/extraction_%s.json", ex.Date)
 			if err := os.WriteFile(outputPath, jsonData, 0644); err != nil {
-				log.Printf("Error writing output file for date %s: %v\n", ex.Date, err)
+				appLogger.Error(component, "Output file write failed: date=%s path=%s error=%v", ex.Date, outputPath, err)
 			} else {
-				log.Printf("Output file for date %s written successfully\n", ex.Date)
+				appLogger.Info(component, "Output file written: date=%s path=%s size=%d bytes", ex.Date, outputPath, len(jsonData))
 			}
 
 		}(extraction)
 	}
+	clearTempDirs()
 
 	wg.Wait()
+	appLogger.Info(component, "Application completed successfully")
 }
