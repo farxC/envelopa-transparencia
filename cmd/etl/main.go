@@ -112,6 +112,9 @@ func main() {
 	log.SetFlags(0) // Remove default timestamp since we add our own
 
 	var url string
+
+	starting_time := time.Now()
+	appLogger.Info(component, "Application starting: startTime=%s", starting_time.Format(time.RFC3339))
 	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
 	initDatePtr := flag.String("init", yesterday, "Initial date for data extraction")
 	endDatePtr := flag.String("end", yesterday, "End date for data extraction")
@@ -245,5 +248,6 @@ func main() {
 	// clearTempDirs(appLogger)
 
 	wg.Wait()
-	appLogger.Info(component, "Application completed successfully")
+	timeTaken := time.Since(starting_time)
+	appLogger.Info(component, "Application completed successfully: duration=%.2f seconds", timeTaken.Seconds())
 }
