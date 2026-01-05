@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/farxc/transparency_wrapper/internal/logger"
 	"github.com/go-gota/gota/dataframe"
@@ -82,6 +83,16 @@ var columnsForDataType = map[DataType][]string{
 		"Valor do Pagamento Convertido pra R$",
 		"Valor Utilizado na Conversão",
 	},
+	DespesasPagamentoEmpenhosImpactados: {
+		"Código Pagamento",
+		"Código Empenho",
+		"Código Natureza Despesa Completa",
+		"Subitem",
+		"Valor Pago (R$)",
+		"Valor Restos a Pagar Inscritos (R$)",
+		"Valor Restos a Pagar Cancelados (R$)",
+		"Valor Restos a Pagar Pagos (R$)",
+	},
 	DespesasLiquidacao: {
 		"Código Liquidação",
 		"Código Liquidação Resumido",
@@ -105,6 +116,8 @@ var columnsForDataType = map[DataType][]string{
 		"Unidade Gestora",
 		"Código Gestão",
 		"Gestão",
+		"Processo",
+		"Favorecido",
 		"Código Favorecido",
 		"Elemento de Despesa",
 		"Plano Orçamentário",
@@ -319,17 +332,22 @@ func dfRowToCommitment(df dataframe.DataFrame, rowIdx int) Commitment {
 	}
 
 	return Commitment{
-		CommitmentCode:        getStr("Código Empenho"),
-		ResumedCommitmentCode: getStr("Código Empenho Resumido"),
-		EmitionDate:           getStr("Data Emissão"),
-		Type:                  getStr("Tipo Empenho"),
-		ManagementCode:        getStr("Código Gestão"),
-		ManagementName:        getStr("Gestão"),
-		FavoredCode:           getStr("Código Favorecido"),
-		ExpenseNature:         getStr("Elemento de Despesa"),
-		CompleteExpenseNature: getStr("Natureza de Despesa Completa"),
-		BudgetPlan:            getStr("Plano Orçamentário"),
-		Items:                 []CommitmentItem{},
+		CommitmentCode:                getStr("Código Empenho"),
+		ResumedCommitmentCode:         getStr("Código Empenho Resumido"),
+		EmitionDate:                   getStr("Data Emissão"),
+		Type:                          getStr("Tipo Empenho"),
+		ManagementCode:                getStr("Código Gestão"),
+		ManagementName:                getStr("Gestão"),
+		Process:                       getStr("Processo"),
+		FavoredName:                   getStr("Favorecido"),
+		FavoredCode:                   getStr("Código Favorecido"),
+		ExpenseNature:                 getStr("Elemento de Despesa"),
+		CompleteExpenseNature:         getStr("Natureza de Despesa Completa"),
+		BudgetPlan:                    getStr("Plano Orçamentário"),
+		CommitmentOriginalValue:       getStr("Valor Original do Empenho"),
+		CommitmentValueConvertedToBRL: getStr("Valor do Empenho Convertido pra R$"),
+		ConversionValueUsed:           getStr("Valor Utilizado na Conversão"),
+		Items:                         []CommitmentItem{},
 	}
 }
 
@@ -384,6 +402,16 @@ func dfRowToCommitmentItem(df dataframe.DataFrame, rowIdx int) CommitmentItem {
 		}
 		return ""
 	}
+	getInt := func(col string) int {
+		if idx := df.Names(); containsString(idx, col) {
+			val, err := df.Col(col).Elem(rowIdx).Int()
+			if err != nil {
+				return 0
+			}
+			return val
+		}
+		return 0
+	}
 
 	return CommitmentItem{
 		ExpenseCategory:    getStr("Categoria de Despesa"),
@@ -391,7 +419,11 @@ func dfRowToCommitmentItem(df dataframe.DataFrame, rowIdx int) CommitmentItem {
 		AplicationModality: getStr("Modalidade de Aplicação"),
 		ExpenseElement:     getStr("Elemento de Despesa"),
 		Description:        getStr("Descrição"),
-		Sequential:         0,
+		Sequential:         getInt("Sequencial"),
+		Quantity:           getStr("Quantidade"),
+		UnitPrice:          getStr("Valor Unitário"),
+		CurrentValue:       getStr("Valor Atual"),
+		TotalPrice:         getStr("Valor Total"),
 		History:            []CommitmentItemHistory{},
 	}
 }
@@ -403,10 +435,43 @@ func dfRowToCommitmentItemHistory(df dataframe.DataFrame, rowIdx int) Commitment
 		}
 		return ""
 	}
+	getInt := func(col string) int {
+		if idx := df.Names(); containsString(idx, col) {
+			val, err := df.Col(col).Elem(rowIdx).Int()
+			if err != nil {
+				return 0
+			}
+			return val
+		}
+		return 0
+	}
 
 	return CommitmentItemHistory{
-		OperationType: getStr("Tipo Operação"),
-		OperationDate: getStr("Data Operação"),
+		OperationType:  getStr("Tipo Operação"),
+		OperationDate:  getStr("Data Operação"),
+		Sequential:     getInt("Sequencial"),
+		ItemQuantity:   getStr("Quantidade Item"),
+		ItemUnitPrice:  getStr("Valor Unitário Item"),
+		ItemTotalPrice: getStr("Valor Total Item"),
+	}
+}
+
+func dfRowToPaymentImpactedCommitment(df dataframe.DataFrame, rowIdx int) PaymentImpactedCommitment {
+	getStr := func(col string) string {
+		if containsString(df.Names(), col) {
+			return df.Col(col).Elem(rowIdx).String()
+		}
+		return ""
+	}
+	return PaymentImpactedCommitment{
+		PaymentCode:                getStr("Código Pagamento"),
+		CommitmentCode:             getStr("Código Empenho"),
+		CompleteExpenseNature:      getStr("Natureza de Despesa Completa"),
+		Subitem:                    getStr("Subitem"),
+		PaidValueBRL:               getStr("Valor Pago (R$)"),
+		RegisteredPayablesValueBRL: getStr("Valor Restos a Pagar Inscritos (R$)"),
+		CanceledPayablesValueBRL:   getStr("Valor Restos a Pagar Cancelados (R$)"),
+		OutstandingValuePaidBRL:    getStr("Valor Restos a Pagar Pagos (R$)"),
 	}
 }
 
@@ -535,9 +600,14 @@ func filterExtractionsByColumn(extractions []DayExtraction, dataTypes []DataType
 func ExtractData(extractions []DayExtraction, unitsCode []string, appLogger *logger.Logger) (*CommitmentPayload, error) {
 	const component = "DataExtractor"
 	var wg sync.WaitGroup
-	extractionDate := extractions[0].Date
 
-	appLogger.Info(component, "Starting data extraction: date=%s unitsCount=%d", extractionDate, len(unitsCode))
+	extractionDate, err := time.Parse("20060102", extractions[0].Date)
+	if err != nil {
+		return nil, fmt.Errorf("invalid extraction date format: %v", err)
+	}
+	formattedDate := extractionDate.Format("2006-01-02")
+
+	appLogger.Info(component, "Starting data extraction: date=%s unitsCount=%d", formattedDate, len(unitsCode))
 
 	mainMatches := make(chan ExtractedDataframe, 3)
 	commitmentMatches := make(chan ExtractedDataframe, 3)
@@ -650,7 +720,7 @@ func ExtractData(extractions []DayExtraction, unitsCode []string, appLogger *log
 
 	// Build the hierarchical JSON structure
 	payload := &CommitmentPayload{
-		ExtractionDate:  extractionDate,
+		ExtractionDate:  formattedDate,
 		UnitCommitments: []UnitCommitments{},
 	}
 

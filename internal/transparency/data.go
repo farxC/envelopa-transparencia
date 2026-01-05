@@ -31,11 +31,12 @@ const (
 )
 
 type CommitmentItemHistory struct {
-	OperationType  string  `json:"operation_type"`
-	OperationDate  string  `json:"operation_date"`
-	ItemQuantity   int     `json:"item_quantity"`
-	ItemUnitPrice  float32 `json:"item_unit_price"`
-	ItemTotalPrice float32 `json:"item_total_price"`
+	OperationType  string `json:"operation_type"`
+	OperationDate  string `json:"operation_date"`
+	ItemQuantity   string `json:"item_quantity"`
+	ItemUnitPrice  string `json:"item_unit_price"`
+	ItemTotalPrice string `json:"item_total_price"`
+	Sequential     int    `json:"sequential"`
 }
 type CommitmentItem struct {
 	ExpenseCategory    string                  `json:"expense_category"`
@@ -43,11 +44,11 @@ type CommitmentItem struct {
 	AplicationModality string                  `json:"aplication_modality"`
 	ExpenseElement     string                  `json:"expense_element"`
 	Description        string                  `json:"description"`
-	Quantity           int                     `json:"quantity"`
+	Quantity           string                  `json:"quantity"`
 	Sequential         int                     `json:"sequential"`
-	UnitPrice          float32                 `json:"unit_price"`
-	CurrentValue       float32                 `json:"current_value"`
-	TotalPrice         float32                 `json:"total_price"`
+	UnitPrice          string                  `json:"unit_price"`
+	CurrentValue       string                  `json:"current_value"`
+	TotalPrice         string                  `json:"total_price"`
 	History            []CommitmentItemHistory `json:"history"`
 }
 
@@ -56,15 +57,17 @@ type Commitment struct {
 	ResumedCommitmentCode         string           `json:"resumed_commitment_code"`
 	EmitionDate                   string           `json:"emition_date"`
 	Type                          string           `json:"type"`
+	Process                       string           `json:"process"`
 	ManagementCode                string           `json:"management_code"`
 	ManagementName                string           `json:"management_name"`
+	FavoredName                   string           `json:"favored_name"`
 	FavoredCode                   string           `json:"favored_code"`
 	ExpenseNature                 string           `json:"expense_nature"`
 	CompleteExpenseNature         string           `json:"complete_expense_nature"`
 	BudgetPlan                    string           `json:"budget_plan"`
-	CommitmentOriginalValue       float32          `json:"commitment_original_value"`
-	CommitmentValueConvertedToBRL float32          `json:"commitment_value_converted_to_brl"`
-	ConversionValueUsed           float32          `json:"conversion_value_used"`
+	CommitmentOriginalValue       string           `json:"commitment_original_value"`
+	CommitmentValueConvertedToBRL string           `json:"commitment_value_converted_to_brl"`
+	ConversionValueUsed           string           `json:"conversion_value_used"`
 	Items                         []CommitmentItem `json:"items"`
 }
 
@@ -94,6 +97,17 @@ type Payment struct {
 	ConvertedPaymentValue string `json:"converted_payment_value"`
 	ConversionUsedValue   string `json:"conversion_used_value"`
 }
+
+type PaymentImpactedCommitment struct {
+	PaymentCode                string `json:"payment_code"`
+	CommitmentCode             string `json:"commitment_code"`
+	CompleteExpenseNature      string `json:"complete_expense_nature"`
+	Subitem                    string `json:"subitem"`
+	PaidValueBRL               string `json:"paid_value_brl"`
+	RegisteredPayablesValueBRL string `json:"registered_payables_value_brl"`
+	CanceledPayablesValueBRL   string `json:"canceled_payables_value_brl"`
+	OutstandingValuePaidBRL    string `json:"outstanding_value_paid_brl"`
+}
 type UnitCommitments struct {
 	UgCode       string        `json:"ug_code"`
 	UgName       string        `json:"ug_name"`
@@ -103,6 +117,6 @@ type UnitCommitments struct {
 }
 
 type CommitmentPayload struct {
-	UnitCommitments []UnitCommitments `json:"units"`
 	ExtractionDate  string            `json:"extraction_date"`
+	UnitCommitments []UnitCommitments `json:"units"`
 }
