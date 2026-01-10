@@ -82,6 +82,17 @@ type Liquidation struct {
 	Observation            string `json:"observation"`
 }
 
+type LiquidationImpactedCommitment struct {
+	LiquidationCode               string `json:"liquidation_code"`
+	CommitmentCode                string `json:"commitment_code"`
+	CompleteExpenseNature         string `json:"complete_expense_nature"`
+	Subitem                       string `json:"subitem"`
+	LiquidatedValueBRL            string `json:"liquidated_value_brl"`
+	RegisteredPayablesValueBRL    string `json:"registered_payables_value_brl"`
+	CanceledPayablesValueBRL      string `json:"canceled_payables_value_brl"`
+	OutstandingValueLiquidatedBRL string `json:"outstanding_value_liquidated_brl"`
+}
+
 type Payment struct {
 	PaymentCode           string `json:"payment_code"`
 	PaymentCodeResumed    string `json:"payment_code_resumed"`

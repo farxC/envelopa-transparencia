@@ -223,7 +223,7 @@ func main() {
 			appLogger.Debug(component, "Processing extraction: date=%s", ex.Date)
 
 			//Memory intensive
-			payload, err := transparency.ExtractData([]transparency.DayExtraction{ex}, ugs, appLogger)
+			payload, err := transparency.ExtractData(ex, ugs, appLogger)
 			if err != nil {
 				appLogger.Warn(component, "Data extraction skipped: date=%s reason=%v", ex.Date, err)
 				return
