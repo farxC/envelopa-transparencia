@@ -30,7 +30,7 @@ type ExtractionResult struct {
 	OutputDir string
 }
 
-type ExtractedDataframe struct {
+type MatchingDataframe struct {
 	Dataframe dataframe.DataFrame
 	Type      DataType
 }
@@ -307,14 +307,11 @@ func BuildFilesForDate(date, dir string) map[DataType]string {
 	return m
 }
 
-func OpenFileAndDecode(path string, appLogger *logger.Logger) (dataframe.DataFrame, error) {
+func OpenFileAndDecode(path string) (dataframe.DataFrame, error) {
 	const component = "FileDecoder"
-
-	appLogger.Debug(component, "Opening file: path=%s", path)
 
 	file, err := os.Open(path)
 	if err != nil {
-		appLogger.Error(component, "Failed to open file: path=%s error=%v", path, err)
 		return dataframe.DataFrame{}, fmt.Errorf("failed to open file %s: %v", path, err)
 	}
 
@@ -325,11 +322,9 @@ func OpenFileAndDecode(path string, appLogger *logger.Logger) (dataframe.DataFra
 	df := dataframe.ReadCSV(decoded, dataframe.WithDelimiter(';'), dataframe.WithLazyQuotes(true))
 	// If dataframe is empty return
 	if df.Nrow() == 0 {
-		appLogger.Warn(component, "Empty dataframe loaded: path=%s", path)
 		return dataframe.DataFrame{}, fmt.Errorf("dataframe is empty")
 	}
 
-	appLogger.Debug(component, "File decoded successfully: path=%s rows=%d cols=%d", path, df.Nrow(), df.Ncol())
 	return df, df.Error()
 }
 
@@ -589,16 +584,17 @@ func extractMainCode(df dataframe.DataFrame, dfType DataType) string {
 	return ""
 }
 
-func transformExpenses(df dataframe.DataFrame, dfType DataType) (dataframe.DataFrame, map[DataType]string, error) {
+func selectDataframeColumns(df dataframe.DataFrame, dfType DataType) (dataframe.DataFrame, error) {
+
 	// 1. Validate data type
 	if err := validateDataTypeForTransformation(dfType); err != nil {
-		return dataframe.DataFrame{}, nil, err
+		return dataframe.DataFrame{}, err
 	}
 
 	// 2. Prepare dataframe with computed columns
 	result, additionalCols, err := prepareDataframeWithComputedColumns(df)
 	if err != nil {
-		return dataframe.DataFrame{}, nil, err
+		return dataframe.DataFrame{}, err
 	}
 
 	// 3. Select required columns
@@ -606,24 +602,17 @@ func transformExpenses(df dataframe.DataFrame, dfType DataType) (dataframe.DataF
 	result = result.Select(selectedCols)
 
 	if result.Error() != nil {
-		return dataframe.DataFrame{}, nil, fmt.Errorf("error selecting columns: %v", result.Error())
+		return dataframe.DataFrame{}, fmt.Errorf("error selecting columns: %v", result.Error())
 	}
 
-	// 4. Extract main code
-	expenseCode := extractMainCode(result, dfType)
-	codeMap := map[DataType]string{}
-	if expenseCode != "" {
-		codeMap[dfType] = expenseCode
-	}
-
-	return result, codeMap, nil
+	return result, nil
 }
 
 /*
 Finds rows in the dataframe that match the given codes in the specified column and sends the resulting dataframe to the provided channel.
 (This function runs as a goroutine and signals completion via the WaitGroup.)
 */
-func findRows(df dataframe.DataFrame, dfType DataType, codes []string, codeColumn string, date string, ch chan ExtractedDataframe, wg *sync.WaitGroup, appLogger *logger.Logger) {
+func findRows(df dataframe.DataFrame, dfType DataType, codes []string, codeColumn string, date string, ch chan MatchingDataframe, wg *sync.WaitGroup, appLogger *logger.Logger) {
 	const component = "DataFilter"
 	defer wg.Done()
 
@@ -646,17 +635,14 @@ func findRows(df dataframe.DataFrame, dfType DataType, codes []string, codeColum
 
 	appLogger.Info(component, "Row search completed: date=%s type=%s matchingRows=%d", date, DataTypeNames[dfType], matchingRows.Nrow())
 	if matchingRows.Nrow() > 0 {
-		ch <- ExtractedDataframe{Dataframe: matchingRows, Type: dfType}
+		ch <- MatchingDataframe{Dataframe: matchingRows, Type: dfType}
 	}
 }
 
 /*
 Finds rows in the dataframe that match the given codes in the specified column synchronously.
 */
-func findRowsSync(df dataframe.DataFrame, dfType DataType, codes []string, codeColumn string, appLogger *logger.Logger) ExtractedDataframe {
-	const component = "DataFilterSync"
-
-	appLogger.Debug(component, "Starting synchronous row search: type=%s column=%s codesCount=%d", DataTypeNames[dfType], codeColumn, len(codes))
+func findRowsSync(df dataframe.DataFrame, dfType DataType, codes []string, codeColumn string) dataframe.DataFrame {
 
 	filter := dataframe.F{
 		Colname:    codeColumn,
@@ -669,36 +655,27 @@ func findRowsSync(df dataframe.DataFrame, dfType DataType, codes []string, codeC
 	)
 
 	if df.Error() != nil {
-		appLogger.Error(component, "DataFrame filter error: type=%s error=%v", DataTypeNames[dfType], df.Error())
-		return ExtractedDataframe{}
+		return dataframe.DataFrame{}
 	}
 
-	appLogger.Info(component, "Synchronous row search completed: type=%s matchingRows=%d", DataTypeNames[dfType], matchingRows.Nrow())
 	if matchingRows.Nrow() > 0 {
-		return ExtractedDataframe{Dataframe: matchingRows, Type: dfType}
+		matchingDf, err := selectDataframeColumns(matchingRows, dfType)
+		if err != nil {
+			return dataframe.DataFrame{}
+		}
+		return matchingDf
 	}
-	return ExtractedDataframe{}
+
+	return dataframe.DataFrame{}
 }
 
-func ExtractCommitments(commitmentDf dataframe.DataFrame, unitsCode []string, date string, appLogger *logger.Logger) ExtractedDataframe {
-	return findRowsSync(commitmentDf, DespesasEmpenho, unitsCode, "Código Unidade Gestora", appLogger)
-}
-
-func ExtractLiquidations(liquidationDf dataframe.DataFrame, unitsCode []string, date string, appLogger *logger.Logger) ExtractedDataframe {
-	return findRowsSync(liquidationDf, DespesasLiquidacao, unitsCode, "Código Unidade Gestora", appLogger)
-}
-
-func ExtractPayments(paymentDf dataframe.DataFrame, unitsCode []string, date string, appLogger *logger.Logger) ExtractedDataframe {
-	return findRowsSync(paymentDf, DespesasPagamento, unitsCode, "Código Unidade Gestora", appLogger)
-}
-
-func filterExtractionsByColumn(extraction DayExtraction, targetDataTypes []DataType, codes []string, matchColumn string, chToRelease chan ExtractedDataframe, wg *sync.WaitGroup, appLogger *logger.Logger) {
+func filterExtractionByColumn(extraction DayExtraction, targetDataTypes []DataType, codes []string, matchColumn string, chToRelease chan MatchingDataframe, wg *sync.WaitGroup, appLogger *logger.Logger) {
 	const component = "ExtractionFilter"
 	appLogger.Info(component, "Starting extraction filter: column=%s", matchColumn)
 	for _, dt := range targetDataTypes {
 		if p, ok := extraction.Files[dt]; ok {
 			appLogger.Debug(component, "Processing file: date=%s type=%s path=%s", extraction.Date, DataTypeNames[dt], p)
-			df, err := OpenFileAndDecode(p, appLogger)
+			df, err := OpenFileAndDecode(p)
 			if err != nil {
 				appLogger.Warn(component, "Failed to open/decode file: date=%s type=%s path=%s error=%v", extraction.Date, DataTypeNames[dt], p, err)
 				continue
@@ -711,12 +688,146 @@ func filterExtractionsByColumn(extraction DayExtraction, targetDataTypes []DataT
 	appLogger.Info(component, "Extraction filter completed")
 }
 
+// attachItemsAndHistoryToCommitment attaches commitment items and their history to a commitment
+func attachItemsAndHistoryToCommitment(
+	commitment *Commitment,
+	itemsDf dataframe.DataFrame,
+	historyDf dataframe.DataFrame,
+) {
+	if itemsDf.Nrow() == 0 {
+		return
+	}
+
+	for j := 0; j < itemsDf.Nrow(); j++ {
+		itemCommitmentCode := itemsDf.Col("Código Empenho").Elem(j).String()
+		if itemCommitmentCode != commitment.CommitmentCode {
+			continue
+		}
+
+		item := dfRowToCommitmentItem(itemsDf, j)
+
+		// Attach history to this item
+		if historyDf.Nrow() > 0 {
+			itemSequential := itemsDf.Col("Sequencial").Elem(j).String()
+			for k := 0; k < historyDf.Nrow(); k++ {
+				histCommitmentCode := historyDf.Col("Código Empenho").Elem(k).String()
+				histSequential := historyDf.Col("Sequencial").Elem(k).String()
+				if histCommitmentCode == commitment.CommitmentCode && histSequential == itemSequential {
+					history := dfRowToCommitmentItemHistory(historyDf, k)
+					item.History = append(item.History, history)
+				}
+			}
+		}
+
+		commitment.Items = append(commitment.Items, item)
+	}
+}
+
+func BuildCommitmentPayload(extraction DayExtraction, unitsCode []string, includeItemsAndHistory bool) (*CommitmentPayload, error) {
+
+	const component = "CommitmentExtractor"
+	extractionDate, err := time.Parse("20060102", extraction.Date)
+	if err != nil {
+		return nil, fmt.Errorf("invalid extraction date format: %v", err)
+	}
+	formattedDate := extractionDate.Format("2006-01-02")
+
+	if p, ok := extraction.Files[DespesasEmpenho]; ok {
+		df, err := OpenFileAndDecode(p)
+		if err != nil {
+			return nil, err
+		}
+
+		commitmentsMatchingDf := findRowsSync(df, DespesasEmpenho, unitsCode, "Código Unidade Gestora")
+
+		if commitmentsMatchingDf.Nrow() == 0 {
+			return nil, fmt.Errorf("no matching commitments found for extraction date %s", extractionDate)
+		}
+		// Prepare to hold items and history dataframes if needed
+		var commitmentsItemsMatchingDf dataframe.DataFrame
+		var commitmentItemsHistoryDf dataframe.DataFrame
+
+		if includeItemsAndHistory {
+			// Get commitment codes for sub-extraction
+			ugsCommitments := commitmentsMatchingDf.Col("Código Empenho").Records()
+
+			if p, ok := extraction.Files[DespesasItemEmpenho]; ok {
+				df, err = OpenFileAndDecode(p)
+				if err != nil {
+					return nil, err
+				}
+				commitmentsItemsMatchingDf = findRowsSync(df, DespesasItemEmpenho, ugsCommitments, "Código Empenho")
+			}
+
+			if p, ok := extraction.Files[DespesasItemEmpenhoHistorico]; ok {
+				df, err = OpenFileAndDecode(p)
+				if err != nil {
+					return nil, err
+				}
+				commitmentItemsHistoryDf = findRowsSync(df, DespesasItemEmpenhoHistorico, ugsCommitments, "Código Empenho")
+			}
+		}
+
+		// Build the hierarchical JSON structure
+		payload := &CommitmentPayload{
+			ExtractionDate:  formattedDate,
+			UnitCommitments: []UnitCommitments{},
+		}
+
+		// Group by Unit Code
+		unitMap := make(map[string]*UnitCommitments)
+
+		// Helper to get or create unit entry
+		getOrCreateUnit := func(ugCode, ugName string) *UnitCommitments {
+			if _, exists := unitMap[ugCode]; !exists {
+				unitMap[ugCode] = &UnitCommitments{
+					UgCode:       ugCode,
+					UgName:       ugName,
+					Commitments:  []Commitment{},
+					Liquidations: []Liquidation{},
+					Payments:     []Payment{},
+				}
+			}
+			// Update name if it was empty
+			if unitMap[ugCode].UgName == "" && ugName != "" {
+				unitMap[ugCode].UgName = ugName
+			}
+			return unitMap[ugCode]
+		}
+
+		// Process commitments (empenhos)
+		for i := 0; i < commitmentsMatchingDf.Nrow(); i++ {
+			ugCode := commitmentsMatchingDf.Col("Código Unidade Gestora").Elem(i).String()
+			ugName := commitmentsMatchingDf.Col("Unidade Gestora").Elem(i).String()
+			unit := getOrCreateUnit(ugCode, ugName)
+
+			commitment := dfRowToCommitment(commitmentsMatchingDf, i)
+
+			// Attach items and history if needed
+			if includeItemsAndHistory {
+				attachItemsAndHistoryToCommitment(&commitment, commitmentsItemsMatchingDf, commitmentItemsHistoryDf)
+			}
+
+			unit.Commitments = append(unit.Commitments, commitment)
+		}
+
+		// Convert map to slice
+		for _, unit := range unitMap {
+			payload.UnitCommitments = append(payload.UnitCommitments, *unit)
+		}
+
+		return payload, nil
+
+	}
+	return nil, fmt.Errorf("no commitment file found in extraction for date %s", extractionDate)
+}
+
 // To do: Modularize this function further
-func ExtractData(extractions DayExtraction, unitsCode []string, appLogger *logger.Logger) (*CommitmentPayload, error) {
+func ExtractData(extraction DayExtraction, unitsCode []string, appLogger *logger.Logger) (*CommitmentPayload, error) {
 	const component = "DataExtractor"
 	var wg sync.WaitGroup
 
-	extractionDate, err := time.Parse("20060102", extractions.Date)
+	extractionDate, err := time.Parse("20060102", extraction.Date)
 	if err != nil {
 		return nil, fmt.Errorf("invalid extraction date format: %v", err)
 	}
@@ -725,10 +836,10 @@ func ExtractData(extractions DayExtraction, unitsCode []string, appLogger *logge
 	appLogger.Info(component, "Starting data extraction: date=%s unitsCount=%d", formattedDate, len(unitsCode))
 
 	// Channel for collect DataFrames based in Unit Codes
-	ugMatches := make(chan ExtractedDataframe, 3)
+	ugMatches := make(chan MatchingDataframe, 3)
 
 	// Channel for collect DataFrames based in Commitment Codes
-	commitmentMatches := make(chan ExtractedDataframe, 3)
+	commitmentMatches := make(chan MatchingDataframe, 3)
 
 	hasUgCodeAsColumn := []DataType{
 		DespesasEmpenho,
@@ -743,7 +854,7 @@ func ExtractData(extractions DayExtraction, unitsCode []string, appLogger *logge
 
 	appLogger.Debug(component, "Phase 1: Filtering by UG codes: date=%s", extractionDate)
 	// First, find all Commitments based in Unit Codes
-	filterExtractionsByColumn(extractions, hasUgCodeAsColumn, unitsCode, "Código Unidade Gestora", ugMatches, &wg, appLogger)
+	filterExtractionByColumn(extraction, hasUgCodeAsColumn, unitsCode, "Código Unidade Gestora", ugMatches, &wg, appLogger)
 
 	wg.Wait()
 	close(ugMatches)
@@ -752,16 +863,12 @@ func ExtractData(extractions DayExtraction, unitsCode []string, appLogger *logge
 	empenhosDf := dataframe.New()
 	liquidacoesDf := dataframe.New()
 	pagamentosDf := dataframe.New()
-	var expenseCodes []map[DataType]string
 	for extracted := range ugMatches {
-		transformedDf, expenseCode, err := transformExpenses(extracted.Dataframe, extracted.Type)
+		transformedDf, err := selectDataframeColumns(extracted.Dataframe, extracted.Type)
+
 		if err != nil {
 			appLogger.Error(component, "DataFrame transformation error: date=%s type=%s error=%v", extractionDate, DataTypeNames[extracted.Type], err)
 			continue
-		}
-
-		if expenseCode != nil {
-			expenseCodes = append(expenseCodes, expenseCode)
 		}
 
 		appLogger.Debug(component, "DataFrame transformed: date=%s type=%s rows=%d", extractionDate, DataTypeNames[extracted.Type], transformedDf.Nrow())
@@ -795,13 +902,13 @@ func ExtractData(extractions DayExtraction, unitsCode []string, appLogger *logge
 		appLogger.Debug(component, "Phase 2: Extracting commitment items: date=%s commitmentCodes=%d", extractionDate, len(ugsCommitments))
 
 		// Extract commitment items and history
-		filterExtractionsByColumn(extractions, hasCommitmentCodeAsColumn,
+		filterExtractionByColumn(extraction, hasCommitmentCodeAsColumn,
 			ugsCommitments, "Código Empenho", commitmentMatches, &wg, appLogger)
 		wg.Wait()
 		close(commitmentMatches)
 
 		for extracted := range commitmentMatches {
-			transformedDf, _, err := transformExpenses(extracted.Dataframe, extracted.Type)
+			transformedDf, err := selectDataframeColumns(extracted.Dataframe, extracted.Type)
 			if err != nil {
 				appLogger.Error(component, "Commitment items transformation error: date=%s type=%s error=%v", extractionDate, DataTypeNames[extracted.Type], err)
 				continue
@@ -809,17 +916,9 @@ func ExtractData(extractions DayExtraction, unitsCode []string, appLogger *logge
 
 			switch extracted.Type {
 			case DespesasItemEmpenho:
-				if itemsDf.Nrow() == 0 {
-					itemsDf = transformedDf
-				} else {
-					itemsDf = itemsDf.Concat(transformedDf)
-				}
+				itemsDf = transformedDf
 			case DespesasItemEmpenhoHistorico:
-				if historyDf.Nrow() == 0 {
-					historyDf = transformedDf
-				} else {
-					historyDf = historyDf.Concat(transformedDf)
-				}
+				historyDf = transformedDf
 			}
 		}
 		appLogger.Info(component, "Phase 2 completed: date=%s items=%d history=%d", extractionDate, itemsDf.Nrow(), historyDf.Nrow())

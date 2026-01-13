@@ -78,9 +78,9 @@ func (m *MemoryMonitor) Stop() ProfilerStats {
 	return m.stats
 }
 
-func createDirsIfNotExist(dirPath string) error {
+func createDirIfNotExist(dirPath string) error {
 	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
-		err := os.MkdirAll(dirPath, os.ModePerm)
+		err := os.Mkdir(dirPath, os.ModePerm)
 		if err != nil {
 			return err
 		}
@@ -88,7 +88,22 @@ func createDirsIfNotExist(dirPath string) error {
 	return nil
 }
 
-func clearTempDirs(appLogger *logger.Logger) {
+func createTmpDirs(appLogger *logger.Logger) error {
+	const component = "TempDirCreator"
+	dirs := []string{"tmp", "tmp/zips", "tmp/data"}
+	for _, dir := range dirs {
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			err := os.Mkdir(dir, os.ModePerm)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	appLogger.Info(component, "Temporary directories created or already exist: dirs=%v", dirs)
+	return nil
+}
+
+func clearTmpDirs(appLogger *logger.Logger) {
 	const component = "TempCleaner"
 	dirs := []string{"tmp/zips", "tmp/data"}
 	for _, dir := range dirs {
@@ -101,6 +116,96 @@ func clearTempDirs(appLogger *logger.Logger) {
 	}
 }
 
+func DonwloadData(init_parsed_date, end_parsed_date time.Time, appLogger *logger.Logger) ([]transparency.DayExtraction, error) {
+	var extractions []transparency.DayExtraction
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	component := "Downloader"
+	var url string
+
+	appLogger.Info(component, "Starting download phase")
+	downloadCount := 0
+	for !init_parsed_date.After(end_parsed_date) {
+		init_date := init_parsed_date.Format("20060102")
+		url = transparency.PORTAL_TRANSPARENCIA_URL + init_date
+		wg.Add(1)
+		downloadCount++
+		go func(u, d string) {
+			defer wg.Done()
+			download := transparency.FetchData(u, d, appLogger)
+			var extraction transparency.ExtractionResult
+
+			if !download.Success {
+				appLogger.Warn(component, "Download failed: date=%s", d)
+				return
+			}
+
+			if download.OutputPath != "" {
+				extraction = transparency.UnzipFile(download.OutputPath, "tmp/data/despesas_"+d, appLogger)
+			}
+
+			if !extraction.Success {
+				appLogger.Warn(component, "Extraction failed: date=%s", d)
+				return
+			}
+
+			files := transparency.BuildFilesForDate(d, extraction.OutputDir)
+
+			mu.Lock()
+			extractions = append(extractions, transparency.DayExtraction{Date: d, Files: files})
+			mu.Unlock()
+			appLogger.Info(component, "Day extraction ready: date=%s outputDir=%s", d, extraction.OutputDir)
+		}(url, init_date)
+		init_parsed_date = init_parsed_date.AddDate(0, 0, 1)
+	}
+
+	appLogger.Info(component, "Waiting for downloads to complete: totalDays=%d", downloadCount)
+	wg.Wait()
+
+	return extractions, nil
+}
+
+func ProcessExtractions(extractions []transparency.DayExtraction, ugs []string, appLogger *logger.Logger) (bool, error) {
+	const component = "DataProcessor"
+	MAX_CONCURRENT_EXTRACTIONS_DATA := 7
+	extractions_semaphore := make(chan struct{}, MAX_CONCURRENT_EXTRACTIONS_DATA)
+	var wg sync.WaitGroup
+	appLogger.Info(component, "Starting data processing phase: extractionsReady=%d maxConcurrent=%d", len(extractions), MAX_CONCURRENT_EXTRACTIONS_DATA)
+
+	for _, extraction := range extractions {
+		wg.Add(1)
+		go func(ex transparency.DayExtraction) {
+			defer wg.Done()
+			extractions_semaphore <- struct{}{}
+			defer func() { <-extractions_semaphore }()
+
+			appLogger.Debug(component, "Processing extraction: date=%s", ex.Date)
+
+			//Memory intensive
+			payload, err := transparency.ExtractData(ex, ugs, appLogger)
+			if err != nil {
+				appLogger.Warn(component, "Data extraction skipped: date=%s reason=%v", ex.Date, err)
+				return
+			}
+
+			jsonData, err := json.Marshal(payload)
+			if err != nil {
+				appLogger.Error(component, "JSON marshaling failed: date=%s error=%v", ex.Date, err)
+				return
+			}
+
+			outputPath := fmt.Sprintf("output/extraction_%s.json", ex.Date)
+			if err := os.WriteFile(outputPath, jsonData, 0644); err != nil {
+				appLogger.Error(component, "Output file write failed: date=%s path=%s error=%v", ex.Date, outputPath, err)
+				return
+			}
+			appLogger.Info(component, "Output file written: date=%s path=%s size=%d bytes", ex.Date, outputPath, len(jsonData))
+		}(extraction)
+	}
+	wg.Wait()
+	return true, nil
+}
+
 func main() {
 	const component = "Main"
 	monitor := NewMonitor()
@@ -110,8 +215,6 @@ func main() {
 
 	// Configure log output format
 	log.SetFlags(0) // Remove default timestamp since we add our own
-
-	var url string
 
 	starting_time := time.Now()
 	appLogger.Info(component, "Application starting: startTime=%s", starting_time.Format(time.RFC3339))
@@ -143,111 +246,46 @@ func main() {
 	appLogger.Info(component, "Application started: initDate=%s endDate=%s ugsCount=%d logLevel=%s", init_date, end_date, len(ugs), *logLevelPtr)
 
 	// Create necessary directories
-	dirs := []string{"tmp/zips", "tmp/data"}
-	MAX_CONCURRENT_EXTRACTIONS_DATA := 7
-	extractions_semaphore := make(chan struct{}, MAX_CONCURRENT_EXTRACTIONS_DATA)
+	err := createTmpDirs(appLogger)
 
-	appLogger.Debug(component, "Creating required directories: dirs=%v", dirs)
-	for _, dir := range dirs {
-		err := createDirsIfNotExist(dir)
-		if err != nil {
-			appLogger.Fatal(component, "Failed to create directory: dir=%s error=%v", dir, err)
-		}
+	if err != nil {
+		appLogger.Fatal(component, "Failed to create temporary directories: error=%v", err)
+		return
 	}
 
 	init_parsed_date, err := time.Parse(time.DateOnly, init_date)
 	if err != nil {
 		appLogger.Fatal(component, "Invalid init date format: date=%s error=%v", init_date, err)
+		return
 	}
 	end_parsed_date, err := time.Parse(time.DateOnly, end_date)
+
 	if err != nil {
 		appLogger.Fatal(component, "Invalid end date format: date=%s error=%v", end_date, err)
+		return
 	}
 
-	var extractions []transparency.DayExtraction
+	err = createDirIfNotExist("output")
 
-	var mu sync.Mutex
-
-	var wg sync.WaitGroup
-
-	appLogger.Info(component, "Starting download phase")
-	downloadCount := 0
-	for !init_parsed_date.After(end_parsed_date) {
-		init_date = init_parsed_date.Format("20060102")
-		url = transparency.PORTAL_TRANSPARENCIA_URL + init_date
-		wg.Add(1)
-		downloadCount++
-		go func(u, d string) {
-			defer wg.Done()
-			download := transparency.FetchData(u, d, appLogger)
-			var extraction transparency.ExtractionResult
-
-			if !download.Success {
-				appLogger.Warn(component, "Download failed: date=%s", d)
-				return
-			}
-
-			if download.OutputPath != "" {
-				extraction = transparency.UnzipFile(download.OutputPath, "tmp/data/despesas_"+d, appLogger)
-			}
-
-			if !extraction.Success {
-				appLogger.Warn(component, "Extraction failed: date=%s", d)
-				return
-			}
-
-			files := transparency.BuildFilesForDate(d, extraction.OutputDir)
-
-			mu.Lock()
-			extractions = append(extractions, transparency.DayExtraction{Date: d, Files: files})
-			mu.Unlock()
-			appLogger.Info(component, "Day extraction ready: date=%s outputDir=%s", d, extraction.OutputDir)
-
-		}(url, init_date)
-		init_parsed_date = init_parsed_date.AddDate(0, 0, 1)
+	if err != nil {
+		appLogger.Fatal(component, "Failed to create output directory: error=%v", err)
+		return
 	}
-	appLogger.Info(component, "Waiting for downloads to complete: totalDays=%d", downloadCount)
-	wg.Wait()
 
-	// Create a goroutine for each day
-	createDirsIfNotExist("output")
-	appLogger.Info(component, "Starting data processing phase: extractionsReady=%d maxConcurrent=%d", len(extractions), MAX_CONCURRENT_EXTRACTIONS_DATA)
+	extractions, err := DonwloadData(init_parsed_date, end_parsed_date, appLogger)
+	if err != nil {
+		appLogger.Fatal(component, "Data download failed: error=%v", err)
+		return
+	}
 
-	for _, extraction := range extractions {
-		wg.Add(1)
-		go func(ex transparency.DayExtraction) {
-			defer wg.Done()
-			extractions_semaphore <- struct{}{}
-			defer func() { <-extractions_semaphore }()
-
-			appLogger.Debug(component, "Processing extraction: date=%s", ex.Date)
-
-			//Memory intensive
-			payload, err := transparency.ExtractData(ex, ugs, appLogger)
-			if err != nil {
-				appLogger.Warn(component, "Data extraction skipped: date=%s reason=%v", ex.Date, err)
-				return
-			}
-
-			jsonData, err := json.Marshal(payload)
-			if err != nil {
-				appLogger.Error(component, "JSON marshaling failed: date=%s error=%v", ex.Date, err)
-				return
-			}
-
-			outputPath := fmt.Sprintf("output/extraction_%s.json", ex.Date)
-			if err := os.WriteFile(outputPath, jsonData, 0644); err != nil {
-				appLogger.Error(component, "Output file write failed: date=%s path=%s error=%v", ex.Date, outputPath, err)
-			} else {
-				appLogger.Info(component, "Output file written: date=%s path=%s size=%d bytes", ex.Date, outputPath, len(jsonData))
-			}
-
-		}(extraction)
+	ok, err := ProcessExtractions(extractions, ugs, appLogger)
+	if err != nil || !ok {
+		appLogger.Fatal(component, "Data processing failed: error=%v", err)
+		return
 	}
 
 	// clearTempDirs(appLogger)
 
-	wg.Wait()
 	timeTaken := time.Since(starting_time)
 	appLogger.Info(component, "Application completed successfully: duration=%.2f seconds", timeTaken.Seconds())
 }
