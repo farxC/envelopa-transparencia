@@ -13,6 +13,9 @@ import (
 
 	"github.com/farxc/transparency_wrapper/internal/logger"
 	"github.com/farxc/transparency_wrapper/internal/transparency"
+	"github.com/farxc/transparency_wrapper/internal/transparency/downloader"
+	"github.com/farxc/transparency_wrapper/internal/transparency/files"
+	"github.com/farxc/transparency_wrapper/internal/transparency/types"
 )
 
 type ProfilerStats struct {
@@ -103,21 +106,27 @@ func createTmpDirs(appLogger *logger.Logger) error {
 	return nil
 }
 
-func clearTmpDirs(appLogger *logger.Logger) {
-	const component = "TempCleaner"
-	dirs := []string{"tmp/zips", "tmp/data"}
-	for _, dir := range dirs {
-		err := os.RemoveAll(dir)
-		if err != nil {
-			appLogger.Warn(component, "Failed to clear temp dir: dir=%s error=%v", dir, err)
-		} else {
-			appLogger.Info(component, "Temp dir cleared: dir=%s", dir)
-		}
+func clearTmpData(appLogger *logger.Logger) {
+	const component = "TempCleanerData"
+	err := os.RemoveAll("tmp/data")
+	if err != nil {
+		appLogger.Warn(component, "Failed to clear temp dir: dir=%s error=%v", "tmp/data", err)
+	} else {
+		appLogger.Info(component, "Temp dir cleared: dir=%s", "tmp/data")
 	}
+
 }
 
-func DonwloadData(init_parsed_date, end_parsed_date time.Time, appLogger *logger.Logger) ([]transparency.DayExtraction, error) {
-	var extractions []transparency.DayExtraction
+func isFileAlreadyDownloaded(date string) (exists bool, expectedPath string) {
+	filePath := fmt.Sprintf("tmp/zips/despesas_%s.zip", date)
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return false, filePath
+	}
+	return true, filePath
+}
+
+func DonwloadData(init_parsed_date, end_parsed_date time.Time, appLogger *logger.Logger) ([]types.OutputExtractionFiles, error) {
+	var extractions []types.OutputExtractionFiles
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	component := "Downloader"
@@ -126,36 +135,39 @@ func DonwloadData(init_parsed_date, end_parsed_date time.Time, appLogger *logger
 	appLogger.Info(component, "Starting download phase")
 	downloadCount := 0
 	for !init_parsed_date.After(end_parsed_date) {
-		init_date := init_parsed_date.Format("20060102")
-		url = transparency.PORTAL_TRANSPARENCIA_URL + init_date
+		date := init_parsed_date.Format("20060102")
+		url = downloader.PortalTransparenciaURL + date
 		wg.Add(1)
 		downloadCount++
 		go func(u, d string) {
 			defer wg.Done()
-			download := transparency.FetchData(u, d, appLogger)
-			var extraction transparency.ExtractionResult
+			var path string
+			var extraction files.ExtractionResult
+			exists, path := isFileAlreadyDownloaded(d)
 
-			if !download.Success {
-				appLogger.Warn(component, "Download failed: date=%s", d)
-				return
+			if !exists {
+				download := downloader.FetchData(u, d, appLogger)
+				if !download.Success {
+					appLogger.Warn(component, "Download failed: date=%s", d)
+					return
+				}
+				path = download.OutputPath
 			}
 
-			if download.OutputPath != "" {
-				extraction = transparency.UnzipFile(download.OutputPath, "tmp/data/despesas_"+d, appLogger)
-			}
+			extraction = files.UnzipFile(path, "tmp/data/despesas_"+d, appLogger)
 
 			if !extraction.Success {
 				appLogger.Warn(component, "Extraction failed: date=%s", d)
 				return
 			}
 
-			files := transparency.BuildFilesForDate(d, extraction.OutputDir)
+			extractedFiles := files.BuildFilesForDate(d, extraction.OutputDir)
 
 			mu.Lock()
-			extractions = append(extractions, transparency.DayExtraction{Date: d, Files: files})
+			extractions = append(extractions, types.OutputExtractionFiles{Date: d, Files: extractedFiles})
 			mu.Unlock()
-			appLogger.Info(component, "Day extraction ready: date=%s outputDir=%s", d, extraction.OutputDir)
-		}(url, init_date)
+			appLogger.Info(component, "Day extraction ready: date=%s outputDir=%s", date, extraction.OutputDir)
+		}(url, date)
 		init_parsed_date = init_parsed_date.AddDate(0, 0, 1)
 	}
 
@@ -165,7 +177,7 @@ func DonwloadData(init_parsed_date, end_parsed_date time.Time, appLogger *logger
 	return extractions, nil
 }
 
-func ProcessExtractions(extractions []transparency.DayExtraction, ugs []string, appLogger *logger.Logger) (bool, error) {
+func ProcessExtractions(extractions []types.OutputExtractionFiles, ugs []string, appLogger *logger.Logger, commitmentsOnly bool) (bool, error) {
 	const component = "DataProcessor"
 	MAX_CONCURRENT_EXTRACTIONS_DATA := 7
 	extractions_semaphore := make(chan struct{}, MAX_CONCURRENT_EXTRACTIONS_DATA)
@@ -174,15 +186,23 @@ func ProcessExtractions(extractions []transparency.DayExtraction, ugs []string, 
 
 	for _, extraction := range extractions {
 		wg.Add(1)
-		go func(ex transparency.DayExtraction) {
+		go func(ex types.OutputExtractionFiles) {
 			defer wg.Done()
 			extractions_semaphore <- struct{}{}
 			defer func() { <-extractions_semaphore }()
 
 			appLogger.Debug(component, "Processing extraction: date=%s", ex.Date)
+			var payload *types.CommitmentPayload
+			var err error
 
 			//Memory intensive
-			payload, err := transparency.ExtractData(ex, ugs, appLogger)
+			if !commitmentsOnly {
+				payload, err = transparency.ExtractData(ex, ugs, appLogger)
+			} else {
+				//Less memory intensive
+				payload, err = transparency.BuildCommitmentPayload(ex, ugs)
+			}
+
 			if err != nil {
 				appLogger.Warn(component, "Data extraction skipped: date=%s reason=%v", ex.Date, err)
 				return
@@ -222,6 +242,7 @@ func main() {
 	initDatePtr := flag.String("init", yesterday, "Initial date for data extraction")
 	endDatePtr := flag.String("end", yesterday, "End date for data extraction")
 	ugsPtr := flag.String("ugs", "158454,158148,158341,158342,158343,158345,158376,158332,158533,158635,158636", "Comma-separated list of Unit Codes to extract")
+	commitmentsOnlyPtr := flag.Bool("commitmentsOnly", true, "Process only commitments")
 	logLevelPtr := flag.String("loglevel", "info", "Log level: debug, info, warn, error")
 	flag.Parse()
 
@@ -254,6 +275,7 @@ func main() {
 	}
 
 	init_parsed_date, err := time.Parse(time.DateOnly, init_date)
+
 	if err != nil {
 		appLogger.Fatal(component, "Invalid init date format: date=%s error=%v", init_date, err)
 		return
@@ -278,7 +300,7 @@ func main() {
 		return
 	}
 
-	ok, err := ProcessExtractions(extractions, ugs, appLogger)
+	ok, err := ProcessExtractions(extractions, ugs, appLogger, *commitmentsOnlyPtr)
 	if err != nil || !ok {
 		appLogger.Fatal(component, "Data processing failed: error=%v", err)
 		return

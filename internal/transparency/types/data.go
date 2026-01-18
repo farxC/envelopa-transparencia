@@ -1,4 +1,6 @@
-package transparency
+package types
+
+import "github.com/go-gota/gota/dataframe"
 
 type DataType int
 
@@ -29,6 +31,34 @@ const (
 	DespesasPagamentoListaFaturasDataType        = "_Despesas_Pagamento_ListaFaturas.csv"
 	DespesasPagamentoListaPrecatoriosDataType    = "_Despesas_Pagamento_ListaPrecatorios.csv"
 )
+
+var DataTypeNames = map[DataType]string{
+	DespesasEmpenho:                      "Despesas Empenho",
+	DespesasItemEmpenho:                  "Despesas Item Empenho",
+	DespesasItemEmpenhoHistorico:         "Despesas Item Empenho Histórico",
+	DespesasLiquidacao:                   "Despesas Liquidação",
+	DespesasPagamento:                    "Despesas Pagamento",
+	DespesasLiquidacaoEmpenhosImpactados: "Despesas Liquidação Empenhos Impactados",
+	DespesasPagamentoEmpenhosImpactados:  "Despesas Pagamento Empenhos Impactados",
+	DespesasPagamentoListaBancos:         "Despesas Pagamento Lista Bancos",
+	DespesasPagamentoListaFaturas:        "Despesas Pagamento Lista Faturas",
+	DespesasPagamentoListaPrecatorios:    "Despesas Pagamento Lista Precatórios",
+}
+
+type MatchingDataframe struct {
+	Dataframe dataframe.DataFrame
+	Type      DataType
+}
+
+type CommitmentItems struct {
+	CommitmentCode string
+	ItemsDf        dataframe.DataFrame
+}
+
+type OutputExtractionFiles struct {
+	Date  string
+	Files map[DataType]string
+}
 
 type CommitmentItemHistory struct {
 	OperationType  string `json:"operation_type"`
@@ -71,19 +101,7 @@ type Commitment struct {
 	Items                         []CommitmentItem `json:"items"`
 }
 
-type Liquidation struct {
-	LiquidationCode        string `json:"liquidation_code"`
-	LiquidationCodeResumed string `json:"liquidation_code_resumed"`
-	LiquidationEmitionDate string `json:"liquidation_emition_date"`
-	DocumentCodeType       string `json:"document_code_type"`
-	DocumentType           string `json:"document_type"`
-	FavoredCode            string `json:"favored_code"`
-	FavoredName            string `json:"favored_name"`
-	Observation            string `json:"observation"`
-}
-
 type LiquidationImpactedCommitment struct {
-	LiquidationCode               string `json:"liquidation_code"`
 	CommitmentCode                string `json:"commitment_code"`
 	CompleteExpenseNature         string `json:"complete_expense_nature"`
 	Subitem                       string `json:"subitem"`
@@ -93,24 +111,19 @@ type LiquidationImpactedCommitment struct {
 	OutstandingValueLiquidatedBRL string `json:"outstanding_value_liquidated_brl"`
 }
 
-type Payment struct {
-	PaymentCode           string `json:"payment_code"`
-	PaymentCodeResumed    string `json:"payment_code_resumed"`
-	PaymentEmitionDate    string `json:"payment_emition_date"`
-	DocumentCodeType      string `json:"document_code_type"`
-	DocumentType          string `json:"document_type"`
-	FavoredCode           string `json:"favored_code"`
-	FavoredName           string `json:"favored_name"`
-	Observation           string `json:"observation"`
-	ExtraBudgetary        string `json:"extra_budgetary"`
-	Process               string `json:"process"`
-	OriginalPaymentValue  string `json:"original_payment_value"`
-	ConvertedPaymentValue string `json:"converted_payment_value"`
-	ConversionUsedValue   string `json:"conversion_used_value"`
+type Liquidation struct {
+	LiquidationCode        string                          `json:"liquidation_code"`
+	LiquidationCodeResumed string                          `json:"liquidation_code_resumed"`
+	LiquidationEmitionDate string                          `json:"liquidation_emition_date"`
+	DocumentCodeType       string                          `json:"document_code_type"`
+	DocumentType           string                          `json:"document_type"`
+	FavoredCode            string                          `json:"favored_code"`
+	FavoredName            string                          `json:"favored_name"`
+	Observation            string                          `json:"observation"`
+	ImpactedCommitments    []LiquidationImpactedCommitment `json:"impacted_commitments"`
 }
 
 type PaymentImpactedCommitment struct {
-	PaymentCode                string `json:"payment_code"`
 	CommitmentCode             string `json:"commitment_code"`
 	CompleteExpenseNature      string `json:"complete_expense_nature"`
 	Subitem                    string `json:"subitem"`
@@ -119,6 +132,24 @@ type PaymentImpactedCommitment struct {
 	CanceledPayablesValueBRL   string `json:"canceled_payables_value_brl"`
 	OutstandingValuePaidBRL    string `json:"outstanding_value_paid_brl"`
 }
+
+type Payment struct {
+	PaymentCode           string                      `json:"payment_code"`
+	PaymentCodeResumed    string                      `json:"payment_code_resumed"`
+	PaymentEmitionDate    string                      `json:"payment_emition_date"`
+	DocumentCodeType      string                      `json:"document_code_type"`
+	DocumentType          string                      `json:"document_type"`
+	FavoredCode           string                      `json:"favored_code"`
+	FavoredName           string                      `json:"favored_name"`
+	Observation           string                      `json:"observation"`
+	ExtraBudgetary        string                      `json:"extra_budgetary"`
+	Process               string                      `json:"process"`
+	OriginalPaymentValue  string                      `json:"original_payment_value"`
+	ConvertedPaymentValue string                      `json:"converted_payment_value"`
+	ConversionUsedValue   string                      `json:"conversion_used_value"`
+	ImpactedCommitments   []PaymentImpactedCommitment `json:"impacted_commitments"`
+}
+
 type UnitCommitments struct {
 	UgCode       string        `json:"ug_code"`
 	UgName       string        `json:"ug_name"`
