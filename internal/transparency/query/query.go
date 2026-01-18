@@ -36,7 +36,7 @@ var columnsForDataType = map[types.DataType][]string{
 	types.DespesasPagamentoEmpenhosImpactados: {
 		"Código Pagamento",
 		"Código Empenho",
-		"Código Natureza Despesa Completa",
+		"Natureza de Despesa Completa",
 		"Subitem",
 		"Valor Pago (R$)",
 		"Valor Restos a Pagar Inscritos (R$)",
@@ -60,7 +60,7 @@ var columnsForDataType = map[types.DataType][]string{
 	types.DespesasLiquidacaoEmpenhosImpactados: {
 		"Código Liquidação",
 		"Código Empenho",
-		"Código Natureza Despesa Completa",
+		"Natureza de Despesa Completa",
 		"Subitem",
 		"Valor Liquidado (R$)",
 		"Valor Restos a Pagar Inscritos (R$)",

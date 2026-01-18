@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/farxc/transparency_wrapper/internal/logger"
+	"github.com/farxc/transparency_wrapper/internal/transparency/assemble"
 	"github.com/farxc/transparency_wrapper/internal/transparency/converter"
 	"github.com/farxc/transparency_wrapper/internal/transparency/files"
 	"github.com/farxc/transparency_wrapper/internal/transparency/query"
@@ -177,6 +178,32 @@ func ExtractData(extraction types.OutputExtractionFiles, unitsCode []string, app
 		return nil, fmt.Errorf("no matching data found for extraction date %s", extractionDate)
 	}
 
+	// Extract impacted commitments for liquidations
+	var liquidationImpactedCommitmentsDf dataframe.DataFrame
+	if liquidacoesDf.Nrow() > 0 {
+		ugsLiquidations := liquidacoesDf.Col("Código Liquidação").Records()
+		if p, ok := extraction.Files[types.DespesasLiquidacaoEmpenhosImpactados]; ok {
+			df, err := files.OpenFileAndDecode(p)
+			if err != nil {
+				return nil, err
+			}
+			liquidationImpactedCommitmentsDf = query.FindRowsSync(df, types.DespesasLiquidacaoEmpenhosImpactados, ugsLiquidations, "Código Liquidação")
+		}
+	}
+
+	// Extract impacted commitments for payments
+	var paymentImpactedCommitmentsDf dataframe.DataFrame
+	if pagamentosDf.Nrow() > 0 {
+		ugsPayments := pagamentosDf.Col("Código Pagamento").Records()
+		if p, ok := extraction.Files[types.DespesasPagamentoEmpenhosImpactados]; ok {
+			df, err := files.OpenFileAndDecode(p)
+			if err != nil {
+				return nil, err
+			}
+			paymentImpactedCommitmentsDf = query.FindRowsSync(df, types.DespesasPagamentoEmpenhosImpactados, ugsPayments, "Código Pagamento")
+		}
+	}
+
 	// Only extract commitment items if we have commitments
 	itemsDf := dataframe.DataFrame{}
 	historyDf := dataframe.DataFrame{}
@@ -219,85 +246,18 @@ func ExtractData(extraction types.OutputExtractionFiles, unitsCode []string, app
 		UnitCommitments: []types.UnitCommitments{},
 	}
 
-	// Group by Unit Code
-	unitMap := make(map[string]*types.UnitCommitments)
-
-	// Helper to get or create unit entry
-	getOrCreateUnit := func(ugCode, ugName string) *types.UnitCommitments {
-		if _, exists := unitMap[ugCode]; !exists {
-			unitMap[ugCode] = &types.UnitCommitments{
-				UgCode:       ugCode,
-				UgName:       ugName,
-				Commitments:  []types.Commitment{},
-				Liquidations: []types.Liquidation{},
-				Payments:     []types.Payment{},
-			}
-		}
-		// Update name if it was empty
-		if unitMap[ugCode].UgName == "" && ugName != "" {
-			unitMap[ugCode].UgName = ugName
-		}
-		return unitMap[ugCode]
-	}
-
-	// Process commitments (empenhos)
-	for i := 0; i < empenhosDf.Nrow(); i++ {
-		ugCode := empenhosDf.Col("Código Unidade Gestora").Elem(i).String()
-		ugName := empenhosDf.Col("Unidade Gestora").Elem(i).String()
-		unit := getOrCreateUnit(ugCode, ugName)
-
-		commitment := converter.DfRowToCommitment(empenhosDf, i)
-
-		// Attach items to this commitment
-		if itemsDf.Nrow() > 0 {
-			for j := 0; j < itemsDf.Nrow(); j++ {
-				itemCommitmentCode := itemsDf.Col("Código Empenho").Elem(j).String()
-				if itemCommitmentCode == commitment.CommitmentCode {
-					item := converter.DfRowToCommitmentItem(itemsDf, j)
-
-					// Attach history to this item
-					if historyDf.Nrow() > 0 {
-						itemSequential := itemsDf.Col("Sequencial").Elem(j).String()
-						for k := 0; k < historyDf.Nrow(); k++ {
-							histCommitmentCode := historyDf.Col("Código Empenho").Elem(k).String()
-							histSequential := historyDf.Col("Sequencial").Elem(k).String()
-							if histCommitmentCode == commitment.CommitmentCode && histSequential == itemSequential {
-								history := converter.DfRowToCommitmentItemHistory(historyDf, k)
-								item.History = append(item.History, history)
-							}
-						}
-					}
-
-					commitment.Items = append(commitment.Items, item)
-				}
-			}
-		}
-
-		unit.Commitments = append(unit.Commitments, commitment)
-	}
-
-	// Process liquidations
-	for i := 0; i < liquidacoesDf.Nrow(); i++ {
-		ugCode := liquidacoesDf.Col("Código Unidade Gestora").Elem(i).String()
-		ugName := liquidacoesDf.Col("Unidade Gestora").Elem(i).String()
-		unit := getOrCreateUnit(ugCode, ugName)
-
-		liquidation := converter.DfRowToLiquidation(liquidacoesDf, i)
-		unit.Liquidations = append(unit.Liquidations, liquidation)
-	}
-
-	// Process payments
-	for i := 0; i < pagamentosDf.Nrow(); i++ {
-		ugCode := pagamentosDf.Col("Código Unidade Gestora").Elem(i).String()
-		ugName := pagamentosDf.Col("Unidade Gestora").Elem(i).String()
-		unit := getOrCreateUnit(ugCode, ugName)
-
-		payment := converter.DfRowToPayment(pagamentosDf, i)
-		unit.Payments = append(unit.Payments, payment)
-	}
+	unitsMap := assemble.AssembleExpensesData(assemble.ExpectedDataFrames{
+		CommitmentsDf:                    empenhosDf,
+		CommitmentItemsDf:                itemsDf,
+		CommitmentHistoryDf:              historyDf,
+		LiquidationDf:                    liquidacoesDf,
+		LiquidationImpactedCommitmentsDf: liquidationImpactedCommitmentsDf,
+		PaymentsDf:                       pagamentosDf,
+		PaymentImpactedCommitmentsDf:     paymentImpactedCommitmentsDf,
+	})
 
 	// Convert map to slice
-	for _, unit := range unitMap {
+	for _, unit := range unitsMap {
 		payload.UnitCommitments = append(payload.UnitCommitments, *unit)
 	}
 
