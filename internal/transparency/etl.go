@@ -179,7 +179,7 @@ func ExtractData(extraction types.OutputExtractionFiles, unitsCode []string, app
 	}
 
 	// Extract impacted commitments for liquidations
-	var liquidationImpactedCommitmentsDf dataframe.DataFrame
+	liquidationImpactedCommitmentsDf := dataframe.New()
 	if liquidacoesDf.Nrow() > 0 {
 		ugsLiquidations := liquidacoesDf.Col("Código Liquidação").Records()
 		if p, ok := extraction.Files[types.DespesasLiquidacaoEmpenhosImpactados]; ok {
@@ -192,7 +192,7 @@ func ExtractData(extraction types.OutputExtractionFiles, unitsCode []string, app
 	}
 
 	// Extract impacted commitments for payments
-	var paymentImpactedCommitmentsDf dataframe.DataFrame
+	paymentImpactedCommitmentsDf := dataframe.New()
 	if pagamentosDf.Nrow() > 0 {
 		ugsPayments := pagamentosDf.Col("Código Pagamento").Records()
 		if p, ok := extraction.Files[types.DespesasPagamentoEmpenhosImpactados]; ok {

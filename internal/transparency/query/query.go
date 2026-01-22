@@ -36,11 +36,11 @@ var columnsForDataType = map[types.DataType][]string{
 	types.DespesasPagamentoEmpenhosImpactados: {
 		"Código Pagamento",
 		"Código Empenho",
-		"Natureza de Despesa Completa",
+		"Código Natureza Despesa Completa",
 		"Subitem",
 		"Valor Pago (R$)",
 		"Valor Restos a Pagar Inscritos (R$)",
-		"Valor Restos a Pagar Cancelados (R$)",
+		"Valor Restos a Pagar Cancelado (R$)",
 		"Valor Restos a Pagar Pagos (R$)",
 	},
 	types.DespesasLiquidacao: {
@@ -60,12 +60,12 @@ var columnsForDataType = map[types.DataType][]string{
 	types.DespesasLiquidacaoEmpenhosImpactados: {
 		"Código Liquidação",
 		"Código Empenho",
-		"Natureza de Despesa Completa",
+		"Código Natureza Despesa Completa",
 		"Subitem",
 		"Valor Liquidado (R$)",
 		"Valor Restos a Pagar Inscritos (R$)",
 		"Valor Restos a Pagar Cancelado (R$)",
-		"Valor Restos a Pagar Liquidados (R$)",
+		"Valor Restos a Pagar Pagos (R$)",
 	},
 	types.DespesasEmpenho: {
 		"Código Empenho",
@@ -236,7 +236,6 @@ func FindRowsSync(df dataframe.DataFrame, dfType types.DataType, codes []string,
 	if df.Error() != nil {
 		return dataframe.DataFrame{}
 	}
-
 	if matchingRows.Nrow() > 0 {
 		matchingDf, err := SelectDataframeColumns(matchingRows, dfType)
 		if err != nil {

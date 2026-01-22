@@ -160,7 +160,7 @@ func DfRowToPaymentImpactedCommitment(df dataframe.DataFrame, rowIdx int) types.
 		Subitem:                    getStr("Subitem"),
 		PaidValueBRL:               getStr("Valor Pago (R$)"),
 		RegisteredPayablesValueBRL: getStr("Valor Restos a Pagar Inscritos (R$)"),
-		CanceledPayablesValueBRL:   getStr("Valor Restos a Pagar Cancelados (R$)"),
+		CanceledPayablesValueBRL:   getStr("Valor Restos a Pagar Cancelado (R$)"),
 		OutstandingValuePaidBRL:    getStr("Valor Restos a Pagar Pagos (R$)"),
 	}
 }
@@ -179,6 +179,6 @@ func DfRowToLiquidationImpactedCommitment(df dataframe.DataFrame, rowIdx int) ty
 		LiquidatedValueBRL:            getStr("Valor Liquidado (R$)"),
 		RegisteredPayablesValueBRL:    getStr("Valor Restos a Pagar Inscritos (R$)"),
 		CanceledPayablesValueBRL:      getStr("Valor Restos a Pagar Cancelado (R$)"),
-		OutstandingValueLiquidatedBRL: getStr("Valor Restos a Pagar Liquidados (R$)"),
+		OutstandingValueLiquidatedBRL: getStr("Valor Restos a Pagar Pagos (R$)"),
 	}
 }
