@@ -2,183 +2,124 @@ package converter
 
 import (
 	"github.com/farxc/transparency_wrapper/internal/transparency/types"
+	"github.com/farxc/transparency_wrapper/internal/transparency/utils"
 	"github.com/go-gota/gota/dataframe"
 )
 
-func containsString(slice []string, s string) bool {
-	for _, v := range slice {
-		if v == s {
-			return true
-		}
-	}
-	return false
-}
-
 func DfRowToCommitment(df dataframe.DataFrame, rowIdx int) types.Commitment {
-	getStr := func(col string) string {
-		if idx := df.Names(); containsString(idx, col) {
-			return df.Col(col).Elem(rowIdx).String()
-		}
-		return ""
-	}
 
 	return types.Commitment{
-		CommitmentCode:                getStr("Código Empenho"),
-		ResumedCommitmentCode:         getStr("Código Empenho Resumido"),
-		EmitionDate:                   getStr("Data Emissão"),
-		Type:                          getStr("Tipo Empenho"),
-		ManagementCode:                getStr("Código Gestão"),
-		ManagementName:                getStr("Gestão"),
-		Process:                       getStr("Processo"),
-		FavoredName:                   getStr("Favorecido"),
-		FavoredCode:                   getStr("Código Favorecido"),
-		ExpenseNature:                 getStr("Elemento de Despesa"),
-		CompleteExpenseNature:         getStr("Natureza de Despesa Completa"),
-		BudgetPlan:                    getStr("Plano Orçamentário"),
-		CommitmentOriginalValue:       getStr("Valor Original do Empenho"),
-		CommitmentValueConvertedToBRL: getStr("Valor do Empenho Convertido pra R$"),
-		ConversionValueUsed:           getStr("Valor Utilizado na Conversão"),
+		CommitmentId:                  utils.GetStr("Id Empenho", rowIdx, &df),
+		CommitmentCode:                utils.GetStr("Código Empenho", rowIdx, &df),
+		ResumedCommitmentCode:         utils.GetStr("Código Empenho Resumido", rowIdx, &df),
+		EmitionDate:                   utils.GetStr("Data Emissão", rowIdx, &df),
+		Type:                          utils.GetStr("Tipo Empenho", rowIdx, &df),
+		ManagementUnitName:            utils.GetStr("Unidade Gestora", rowIdx, &df),
+		ManagementUnitCode:            utils.GetInt("Código Unidade Gestora", rowIdx, &df),
+		ManagementCode:                utils.GetInt("Código Gestão", rowIdx, &df),
+		ManagementName:                utils.GetStr("Gestão", rowIdx, &df),
+		Process:                       utils.GetStr("Processo", rowIdx, &df),
+		FavoredName:                   utils.GetStr("Favorecido", rowIdx, &df),
+		FavoredCode:                   utils.GetStr("Código Favorecido", rowIdx, &df),
+		ExpenseNature:                 utils.GetStr("Elemento de Despesa", rowIdx, &df),
+		CompleteExpenseNature:         utils.GetStr("Natureza de Despesa Completa", rowIdx, &df),
+		BudgetPlan:                    utils.GetStr("Plano Orçamentário", rowIdx, &df),
+		CommitmentOriginalValue:       utils.GetStr("Valor Original do Empenho", rowIdx, &df),
+		CommitmentValueConvertedToBRL: utils.GetStr("Valor do Empenho Convertido pra R$", rowIdx, &df),
+		ConversionValueUsed:           utils.GetStr("Valor Utilizado na Conversão", rowIdx, &df),
 		Items:                         []types.CommitmentItem{},
 	}
 }
 
 func DfRowToLiquidation(df dataframe.DataFrame, rowIdx int) types.Liquidation {
-	getStr := func(col string) string {
-		if containsString(df.Names(), col) {
-			return df.Col(col).Elem(rowIdx).String()
-		}
-		return ""
-	}
 
 	return types.Liquidation{
-		LiquidationCode:        getStr("Código Liquidação"),
-		LiquidationCodeResumed: getStr("Código Liquidação Resumido"),
-		LiquidationEmitionDate: getStr("Data Emissão"),
-		DocumentCodeType:       getStr("Código Tipo Documento"),
-		DocumentType:           getStr("Tipo Documento"),
-		FavoredCode:            getStr("Código Favorecido"),
-		FavoredName:            getStr("Favorecido"),
-		Observation:            getStr("Observação"),
+		LiquidationCode:        utils.GetStr("Código Liquidação", rowIdx, &df),
+		LiquidationCodeResumed: utils.GetStr("Código Liquidação Resumido", rowIdx, &df),
+		LiquidationEmitionDate: utils.GetStr("Data Emissão", rowIdx, &df),
+		DocumentCodeType:       utils.GetStr("Código Tipo Documento", rowIdx, &df),
+		DocumentType:           utils.GetStr("Tipo Documento", rowIdx, &df),
+		FavoredCode:            utils.GetStr("Código Favorecido", rowIdx, &df),
+		FavoredName:            utils.GetStr("Favorecido", rowIdx, &df),
+		Observation:            utils.GetStr("Observação", rowIdx, &df),
 	}
 }
 
 func DfRowToPayment(df dataframe.DataFrame, rowIdx int) types.Payment {
-	getStr := func(col string) string {
-		if containsString(df.Names(), col) {
-			return df.Col(col).Elem(rowIdx).String()
-		}
-		return ""
-	}
 
 	return types.Payment{
-		PaymentCode:           getStr("Código Pagamento"),
-		PaymentCodeResumed:    getStr("Código Pagamento Resumido"),
-		PaymentEmitionDate:    getStr("Data Emissão"),
-		DocumentCodeType:      getStr("Código Tipo Documento"),
-		DocumentType:          getStr("Tipo Documento"),
-		FavoredCode:           getStr("Código Favorecido"),
-		FavoredName:           getStr("Favorecido"),
-		ExtraBudgetary:        getStr("Extraorçamentário"),
-		Process:               getStr("Processo"),
-		OriginalPaymentValue:  getStr("Valor Original do Pagamento"),
-		ConvertedPaymentValue: getStr("Valor do Pagamento Convertido pra R$"),
-		ConversionUsedValue:   getStr("Valor Utilizado na Conversão"),
+		PaymentCode:           utils.GetStr("Código Pagamento", rowIdx, &df),
+		PaymentCodeResumed:    utils.GetStr("Código Pagamento Resumido", rowIdx, &df),
+		PaymentEmitionDate:    utils.GetStr("Data Emissão", rowIdx, &df),
+		DocumentCodeType:      utils.GetStr("Código Tipo Documento", rowIdx, &df),
+		DocumentType:          utils.GetStr("Tipo Documento", rowIdx, &df),
+		Observation:           utils.GetStr("Observação", rowIdx, &df),
+		FavoredCode:           utils.GetStr("Código Favorecido", rowIdx, &df),
+		FavoredName:           utils.GetStr("Favorecido", rowIdx, &df),
+		ExtraBudgetary:        utils.GetStr("Extraorçamentário", rowIdx, &df),
+		Process:               utils.GetStr("Processo", rowIdx, &df),
+		OriginalPaymentValue:  utils.GetStr("Valor Original do Pagamento", rowIdx, &df),
+		ConvertedPaymentValue: utils.GetStr("Valor do Pagamento Convertido pra R$", rowIdx, &df),
+		ConversionUsedValue:   utils.GetStr("Valor Utilizado na Conversão", rowIdx, &df),
 	}
 }
 
 func DfRowToCommitmentItem(df dataframe.DataFrame, rowIdx int) types.CommitmentItem {
-	getStr := func(col string) string {
-		if containsString(df.Names(), col) {
-			return df.Col(col).Elem(rowIdx).String()
-		}
-		return ""
-	}
-	getInt := func(col string) int {
-		if idx := df.Names(); containsString(idx, col) {
-			val, err := df.Col(col).Elem(rowIdx).Int()
-			if err != nil {
-				return 0
-			}
-			return val
-		}
-		return 0
-	}
 
 	return types.CommitmentItem{
-		ExpenseCategory:    getStr("Categoria de Despesa"),
-		ExpenseGroup:       getStr("Grupo de Despesa"),
-		AplicationModality: getStr("Modalidade de Aplicação"),
-		ExpenseElement:     getStr("Elemento de Despesa"),
-		Description:        getStr("Descrição"),
-		Sequential:         getInt("Sequencial"),
-		Quantity:           getStr("Quantidade"),
-		UnitPrice:          getStr("Valor Unitário"),
-		CurrentValue:       getStr("Valor Atual"),
-		TotalPrice:         getStr("Valor Total"),
+		CommitmentId:       utils.GetStr("Id Empenho", rowIdx, &df),
+		CommitmentCode:     utils.GetStr("Código Empenho", rowIdx, &df),
+		ExpenseCategory:    utils.GetStr("Categoria de Despesa", rowIdx, &df),
+		ExpenseGroup:       utils.GetStr("Grupo de Despesa", rowIdx, &df),
+		AplicationModality: utils.GetStr("Modalidade de Aplicação", rowIdx, &df),
+		ExpenseElement:     utils.GetStr("Elemento de Despesa", rowIdx, &df),
+		Description:        utils.GetStr("Descrição", rowIdx, &df),
+		Sequential:         utils.GetInt("Sequencial", rowIdx, &df),
+		Quantity:           utils.GetStr("Quantidade", rowIdx, &df),
+		UnitPrice:          utils.GetStr("Valor Unitário", rowIdx, &df),
+		CurrentValue:       utils.GetStr("Valor Atual", rowIdx, &df),
+		TotalPrice:         utils.GetStr("Valor Total", rowIdx, &df),
 		History:            []types.CommitmentItemHistory{},
 	}
 }
 
 func DfRowToCommitmentItemHistory(df dataframe.DataFrame, rowIdx int) types.CommitmentItemHistory {
-	getStr := func(col string) string {
-		if containsString(df.Names(), col) {
-			return df.Col(col).Elem(rowIdx).String()
-		}
-		return ""
-	}
-	getInt := func(col string) int {
-		if idx := df.Names(); containsString(idx, col) {
-			val, err := df.Col(col).Elem(rowIdx).Int()
-			if err != nil {
-				return 0
-			}
-			return val
-		}
-		return 0
-	}
-
 	return types.CommitmentItemHistory{
-		OperationType:  getStr("Tipo Operação"),
-		OperationDate:  getStr("Data Operação"),
-		Sequential:     getInt("Sequencial"),
-		ItemQuantity:   getStr("Quantidade Item"),
-		ItemUnitPrice:  getStr("Valor Unitário Item"),
-		ItemTotalPrice: getStr("Valor Total Item"),
+		CommitmentId:   utils.GetStr("Id Empenho", rowIdx, &df),
+		CommitmentCode: utils.GetStr("Código Empenho", rowIdx, &df),
+		OperationType:  utils.GetStr("Tipo Operação", rowIdx, &df),
+		OperationDate:  utils.GetStr("Data Operação", rowIdx, &df),
+		Sequential:     utils.GetInt("Sequencial", rowIdx, &df),
+		ItemQuantity:   utils.GetStr("Quantidade Item", rowIdx, &df),
+		ItemUnitPrice:  utils.GetStr("Valor Unitário Item", rowIdx, &df),
+		ItemTotalPrice: utils.GetStr("Valor Total Item", rowIdx, &df),
 	}
 }
 
 func DfRowToPaymentImpactedCommitment(df dataframe.DataFrame, rowIdx int) types.PaymentImpactedCommitment {
-	getStr := func(col string) string {
-		if containsString(df.Names(), col) {
-			return df.Col(col).Elem(rowIdx).String()
-		}
-		return ""
-	}
+
 	return types.PaymentImpactedCommitment{
-		CommitmentCode:             getStr("Código Empenho"),
-		CompleteExpenseNature:      getStr("Natureza de Despesa Completa"),
-		Subitem:                    getStr("Subitem"),
-		PaidValueBRL:               getStr("Valor Pago (R$)"),
-		RegisteredPayablesValueBRL: getStr("Valor Restos a Pagar Inscritos (R$)"),
-		CanceledPayablesValueBRL:   getStr("Valor Restos a Pagar Cancelado (R$)"),
-		OutstandingValuePaidBRL:    getStr("Valor Restos a Pagar Pagos (R$)"),
+		PaymentCode:                utils.GetStr("Código Pagamento", rowIdx, &df),
+		CommitmentCode:             utils.GetStr("Código Empenho", rowIdx, &df),
+		CompleteExpenseNature:      utils.GetStr("Código Natureza Despesa Completa", rowIdx, &df),
+		Subitem:                    utils.GetStr("Subitem", rowIdx, &df),
+		PaidValueBRL:               utils.GetStr("Valor Pago (R$)", rowIdx, &df),
+		RegisteredPayablesValueBRL: utils.GetStr("Valor Restos a Pagar Inscritos (R$)", rowIdx, &df),
+		CanceledPayablesValueBRL:   utils.GetStr("Valor Restos a Pagar Cancelado (R$)", rowIdx, &df),
+		OutstandingValuePaidBRL:    utils.GetStr("Valor Restos a Pagar Pagos (R$)", rowIdx, &df),
 	}
 }
 
 func DfRowToLiquidationImpactedCommitment(df dataframe.DataFrame, rowIdx int) types.LiquidationImpactedCommitment {
-	getStr := func(col string) string {
-		if containsString(df.Names(), col) {
-			return df.Col(col).Elem(rowIdx).String()
-		}
-		return ""
-	}
+
 	return types.LiquidationImpactedCommitment{
-		CommitmentCode:                getStr("Código Empenho"),
-		CompleteExpenseNature:         getStr("Natureza de Despesa Completa"),
-		Subitem:                       getStr("Subitem"),
-		LiquidatedValueBRL:            getStr("Valor Liquidado (R$)"),
-		RegisteredPayablesValueBRL:    getStr("Valor Restos a Pagar Inscritos (R$)"),
-		CanceledPayablesValueBRL:      getStr("Valor Restos a Pagar Cancelado (R$)"),
-		OutstandingValueLiquidatedBRL: getStr("Valor Restos a Pagar Pagos (R$)"),
+		LiquidationCode:               utils.GetStr("Código Liquidação", rowIdx, &df),
+		CommitmentCode:                utils.GetStr("Código Empenho", rowIdx, &df),
+		CompleteExpenseNature:         utils.GetStr("Código Natureza Despesa Completa", rowIdx, &df),
+		Subitem:                       utils.GetStr("Subitem", rowIdx, &df),
+		LiquidatedValueBRL:            utils.GetStr("Valor Liquidado (R$)", rowIdx, &df),
+		RegisteredPayablesValueBRL:    utils.GetStr("Valor Restos a Pagar Inscritos (R$)", rowIdx, &df),
+		CanceledPayablesValueBRL:      utils.GetStr("Valor Restos a Pagar Cancelado (R$)", rowIdx, &df),
+		OutstandingValueLiquidatedBRL: utils.GetStr("Valor Restos a Pagar Pagos (R$)", rowIdx, &df),
 	}
 }

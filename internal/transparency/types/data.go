@@ -61,6 +61,8 @@ type OutputExtractionFiles struct {
 }
 
 type CommitmentItemHistory struct {
+	CommitmentId   string `json:"commitment_id"`
+	CommitmentCode string `json:"commitment_code"`
 	OperationType  string `json:"operation_type"`
 	OperationDate  string `json:"operation_date"`
 	ItemQuantity   string `json:"item_quantity"`
@@ -69,6 +71,8 @@ type CommitmentItemHistory struct {
 	Sequential     int    `json:"sequential"`
 }
 type CommitmentItem struct {
+	CommitmentId       string                  `json:"commitment_id"`
+	CommitmentCode     string                  `json:"commitment_code"`
 	ExpenseCategory    string                  `json:"expense_category"`
 	ExpenseGroup       string                  `json:"expense_group"`
 	AplicationModality string                  `json:"aplication_modality"`
@@ -83,12 +87,15 @@ type CommitmentItem struct {
 }
 
 type Commitment struct {
+	CommitmentId                  string           `json:"commitment_id"`
 	CommitmentCode                string           `json:"commitment_code"`
 	ResumedCommitmentCode         string           `json:"resumed_commitment_code"`
 	EmitionDate                   string           `json:"emition_date"`
 	Type                          string           `json:"type"`
 	Process                       string           `json:"process"`
-	ManagementCode                string           `json:"management_code"`
+	ManagementUnitName            string           `json:"management_unit_name"`
+	ManagementUnitCode            int              `json:"management_unit_code"`
+	ManagementCode                int              `json:"management_code"`
 	ManagementName                string           `json:"management_name"`
 	FavoredName                   string           `json:"favored_name"`
 	FavoredCode                   string           `json:"favored_code"`
@@ -102,6 +109,7 @@ type Commitment struct {
 }
 
 type LiquidationImpactedCommitment struct {
+	LiquidationCode               string `json:"liquidation_code"`
 	CommitmentCode                string `json:"commitment_code"`
 	CompleteExpenseNature         string `json:"complete_expense_nature"`
 	Subitem                       string `json:"subitem"`
@@ -115,6 +123,10 @@ type Liquidation struct {
 	LiquidationCode        string                          `json:"liquidation_code"`
 	LiquidationCodeResumed string                          `json:"liquidation_code_resumed"`
 	LiquidationEmitionDate string                          `json:"liquidation_emition_date"`
+	ManagementUnitName     string                          `json:"management_unit_name"`
+	ManagementUnitCode     int                             `json:"management_unit_code"`
+	ManagementCode         int                             `json:"management_code"`
+	ManagementName         string                          `json:"management_name"`
 	DocumentCodeType       string                          `json:"document_code_type"`
 	DocumentType           string                          `json:"document_type"`
 	FavoredCode            string                          `json:"favored_code"`
@@ -124,6 +136,7 @@ type Liquidation struct {
 }
 
 type PaymentImpactedCommitment struct {
+	PaymentCode                string `json:"payment_code"`
 	CommitmentCode             string `json:"commitment_code"`
 	CompleteExpenseNature      string `json:"complete_expense_nature"`
 	Subitem                    string `json:"subitem"`
@@ -138,6 +151,10 @@ type Payment struct {
 	PaymentCodeResumed    string                      `json:"payment_code_resumed"`
 	PaymentEmitionDate    string                      `json:"payment_emition_date"`
 	DocumentCodeType      string                      `json:"document_code_type"`
+	ManagementUnitName    string                      `json:"management_unit_name"`
+	ManagementUnitCode    int                         `json:"management_unit_code"`
+	ManagementCode        int                         `json:"management_code"`
+	ManagementName        string                      `json:"management_name"`
 	DocumentType          string                      `json:"document_type"`
 	FavoredCode           string                      `json:"favored_code"`
 	FavoredName           string                      `json:"favored_name"`

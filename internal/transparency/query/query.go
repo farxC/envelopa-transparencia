@@ -68,6 +68,7 @@ var columnsForDataType = map[types.DataType][]string{
 		"Valor Restos a Pagar Pagos (R$)",
 	},
 	types.DespesasEmpenho: {
+		"Id Empenho",
 		"Código Empenho",
 		"Código Empenho Resumido",
 		"Data Emissão",
@@ -86,6 +87,7 @@ var columnsForDataType = map[types.DataType][]string{
 		"Valor Utilizado na Conversão",
 	},
 	types.DespesasItemEmpenho: {
+		"Id Empenho",
 		"Código Empenho",
 		"Categoria de Despesa",
 		"Grupo de Despesa",
@@ -99,6 +101,7 @@ var columnsForDataType = map[types.DataType][]string{
 		"Valor Atual",
 	},
 	types.DespesasItemEmpenhoHistorico: {
+		"Id Empenho",
 		"Código Empenho",
 		"Sequencial",
 		"Tipo Operação",

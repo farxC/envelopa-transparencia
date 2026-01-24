@@ -2,3 +2,6 @@ tmp
 output
 *.env
 bin/
+
+ARCHITECTURE_DESIGN.md
+SYSTEM_DESIGN.md

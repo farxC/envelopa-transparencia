@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: transparency_wrapper_db
+    environment:
+      - POSTGRES_DB=transparency_wrapper_db
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=helloworld
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5454:5432"
+
+volumes:
+  db_data:

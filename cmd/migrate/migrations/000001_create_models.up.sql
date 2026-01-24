@@ -1,0 +1,152 @@
+-- Commitments table
+CREATE TABLE IF NOT EXISTS commitments (
+    id BIGSERIAL PRIMARY KEY,
+    commitment_code VARCHAR(255) NOT NULL UNIQUE,
+    resumed_commitment_code VARCHAR(255),
+    emission_date TIMESTAMP NOT NULL,
+    type VARCHAR(100),
+    process VARCHAR(255),
+    management_unit_name VARCHAR(255),
+    management_unit_code INTEGER,
+    management_code INTEGER,
+    management_name VARCHAR(255),
+    favored_name VARCHAR(255),
+    expense_nature VARCHAR(255),
+    expense_nature_code VARCHAR(100),
+    budget_plan VARCHAR(255),
+    commitment_original_value NUMERIC(18, 2) DEFAULT 0,
+    commitment_value_converted_to_brl NUMERIC(18, 2) DEFAULT 0,
+    conversion_value_used NUMERIC(18, 2) DEFAULT 0,
+    inserted_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+
+CREATE INDEX idx_commitments_commitment_code ON commitments(commitment_code);
+CREATE INDEX idx_commitments_emission_date ON commitments(emission_date);
+CREATE INDEX idx_commitments_management_unit_code ON commitments(management_unit_code);
+
+-- Commitment items table
+CREATE TABLE IF NOT EXISTS commitment_items (
+    id BIGSERIAL PRIMARY KEY,
+    commitment_id BIGINT NOT NULL REFERENCES commitments(id) ON DELETE CASCADE,
+    commitment_code VARCHAR(255) NOT NULL,
+    expense_nature_code VARCHAR(100),
+    expense_category VARCHAR(255),
+    expense_group VARCHAR(255),
+    expense_element VARCHAR(255),
+    description TEXT,
+    quantity NUMERIC(18, 4) DEFAULT 0,
+    sequential SMALLINT,
+    unit_price NUMERIC(18, 2) DEFAULT 0,
+    current_value NUMERIC(18, 2) DEFAULT 0,
+    current_price NUMERIC(18, 2) DEFAULT 0,
+    total_price NUMERIC(18, 2) DEFAULT 0,
+    inserted_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_commitment_items_commitment_id ON commitment_items(commitment_id);
+CREATE INDEX idx_commitment_items_commitment_code ON commitment_items(commitment_code);
+
+-- Commitment items history table
+CREATE TABLE IF NOT EXISTS commitment_items_history (
+    id BIGSERIAL PRIMARY KEY,
+    commitment_id BIGINT NOT NULL REFERENCES commitments(id) ON DELETE CASCADE,
+    commitment_code VARCHAR(255) NOT NULL,
+    operation_type VARCHAR(100),
+    item_quantity NUMERIC(18, 4) DEFAULT 0,
+    sequential SMALLINT,
+    item_unit_price NUMERIC(18, 2) DEFAULT 0,
+    item_total_price NUMERIC(18, 2) DEFAULT 0,
+    operation_date TIMESTAMP,
+    inserted_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+
+-- Payments table
+CREATE TABLE IF NOT EXISTS payments (
+    id BIGSERIAL PRIMARY KEY,
+    payment_code VARCHAR(255) NOT NULL UNIQUE,
+    payment_code_resumed VARCHAR(255),
+    payment_emission_date TIMESTAMP NOT NULL,
+    document_code_type VARCHAR(100),
+    document_type VARCHAR(100),
+    favored_code BIGINT,
+    favored_name VARCHAR(255),
+    management_unit_name VARCHAR(255),
+    management_unit_code INTEGER,
+    management_code INTEGER,
+    management_name VARCHAR(255),
+    extra_budgetary BOOLEAN DEFAULT FALSE,
+    process VARCHAR(255),
+    original_payment_value NUMERIC(18, 2) DEFAULT 0,
+    converted_payment_value NUMERIC(18, 2) DEFAULT 0,
+    conversion_used_value NUMERIC(18, 2) DEFAULT 0,
+    inserted_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_payments_payment_code ON payments(payment_code);
+CREATE INDEX idx_payments_management_unit_code ON payments(management_unit_code);
+CREATE INDEX idx_payments_payment_emission_date ON payments(payment_emission_date);
+
+-- Payment impacted commitments table
+CREATE TABLE IF NOT EXISTS payment_impacted_commitments (
+    id BIGSERIAL PRIMARY KEY,
+    commitment_code VARCHAR(255) NOT NULL,
+    payment_code VARCHAR(255) NOT NULL,
+    expense_nature_code_complete VARCHAR(100),
+    subitem VARCHAR(100),
+    paid_value_brl NUMERIC(18, 2) DEFAULT 0,
+    registered_payables_value_brl NUMERIC(18, 2) DEFAULT 0,
+    canceled_payables_value_brl NUMERIC(18, 2) DEFAULT 0,
+    outstanding_value_paid_brl NUMERIC(18, 2) DEFAULT 0,
+    inserted_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_payment_impacted_commitments_commitment_code ON payment_impacted_commitments(commitment_code);
+CREATE INDEX idx_payment_impacted_commitments_payment_code ON payment_impacted_commitments(payment_code);
+
+-- Liquidations table
+CREATE TABLE IF NOT EXISTS liquidations (
+    id BIGSERIAL PRIMARY KEY,
+    liquidation_code VARCHAR(255) NOT NULL UNIQUE,
+    liquidation_code_resumed VARCHAR(255),
+    liquidation_emission_date TIMESTAMP NOT NULL,
+    document_code_type VARCHAR(100),
+    document_type VARCHAR(100),
+    management_unit_name VARCHAR(255),
+    management_unit_code INTEGER,
+    management_code INTEGER,
+    management_name VARCHAR(255),
+    favored_code BIGINT,
+    favored_name VARCHAR(255),
+    observation TEXT,
+    inserted_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_liquidations_liquidation_code ON liquidations(liquidation_code);
+CREATE INDEX idx_liquidations_management_unit_code ON liquidations(management_unit_code);
+CREATE INDEX idx_liquidations_liquidation_emission_date ON liquidations(liquidation_emission_date);
+
+-- Liquidation impacted commitments table
+CREATE TABLE IF NOT EXISTS liquidation_impacted_commitments (
+    id BIGSERIAL PRIMARY KEY,
+    commitment_code VARCHAR(255) NOT NULL,
+    liquidation_code VARCHAR(255) NOT NULL,
+    expense_nature_code VARCHAR(100),
+    subitem VARCHAR(100),
+    liquidated_value_brl NUMERIC(18, 2) DEFAULT 0,
+    registered_payables_value_brl NUMERIC(18, 2) DEFAULT 0,
+    canceled_payables_value_brl NUMERIC(18, 2) DEFAULT 0,
+    outstanding_value_liquidated_brl NUMERIC(18, 2) DEFAULT 0,
+    inserted_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_liquidation_impacted_commitments_commitment_code ON liquidation_impacted_commitments(commitment_code);
+CREATE INDEX idx_liquidation_impacted_commitments_liquidation_code ON liquidation_impacted_commitments(liquidation_code);
