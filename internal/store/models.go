@@ -107,7 +107,7 @@ type CommitmentItem struct {
 	ID                int64     `db:"id"`
 	CommitmentID      int64     `db:"commitment_id"`
 	CommitmentCode    string    `db:"commitment_code"`
-	ExpenseNatureCode string    `db:"expense_nature_code"` // Inferred from "expense_nature_cod..."
+	ExpenseNatureCode string    `db:"expense_nature_code"`
 	ExpenseCategory   string    `db:"expense_category"`
 	ExpenseGroup      string    `db:"expense_group"`
 	ExpenseElement    string    `db:"expense_element"`

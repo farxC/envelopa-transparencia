@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,12 +12,27 @@ import (
 	"sync"
 	"time"
 
+	"github.com/farxc/transparency_wrapper/internal/db"
+	"github.com/farxc/transparency_wrapper/internal/env"
 	"github.com/farxc/transparency_wrapper/internal/logger"
+	"github.com/farxc/transparency_wrapper/internal/store"
 	"github.com/farxc/transparency_wrapper/internal/transparency"
 	"github.com/farxc/transparency_wrapper/internal/transparency/downloader"
 	"github.com/farxc/transparency_wrapper/internal/transparency/files"
+	"github.com/farxc/transparency_wrapper/internal/transparency/load"
 	"github.com/farxc/transparency_wrapper/internal/transparency/types"
 )
+
+type config struct {
+	db dbConfig
+}
+
+type dbConfig struct {
+	addr         string
+	maxOpenConns int
+	maxIdleConns int
+	maxIdleTime  string
+}
 
 type ProfilerStats struct {
 	PeakGoroutines int
@@ -177,7 +193,7 @@ func DonwloadData(init_parsed_date, end_parsed_date time.Time, appLogger *logger
 	return extractions, nil
 }
 
-func ProcessExtractions(extractions []types.OutputExtractionFiles, ugs []string, appLogger *logger.Logger, commitmentsOnly bool) (bool, error) {
+func ProcessExtractions(ctx context.Context, extractions []types.OutputExtractionFiles, ugs []string, appLogger *logger.Logger, commitmentsOnly bool, storage *store.Storage) (bool, error) {
 	const component = "DataProcessor"
 	MAX_CONCURRENT_EXTRACTIONS_DATA := 7
 	extractions_semaphore := make(chan struct{}, MAX_CONCURRENT_EXTRACTIONS_DATA)
@@ -186,7 +202,7 @@ func ProcessExtractions(extractions []types.OutputExtractionFiles, ugs []string,
 
 	for _, extraction := range extractions {
 		wg.Add(1)
-		go func(ex types.OutputExtractionFiles) {
+		go func(ctx context.Context, ex types.OutputExtractionFiles) {
 			defer wg.Done()
 			extractions_semaphore <- struct{}{}
 			defer func() { <-extractions_semaphore }()
@@ -214,13 +230,15 @@ func ProcessExtractions(extractions []types.OutputExtractionFiles, ugs []string,
 				return
 			}
 
+			err = load.LoadPayload(ctx, payload, storage, appLogger)
+
 			outputPath := fmt.Sprintf("output/extraction_%s.json", ex.Date)
 			if err := os.WriteFile(outputPath, jsonData, 0644); err != nil {
 				appLogger.Error(component, "Output file write failed: date=%s path=%s error=%v", ex.Date, outputPath, err)
 				return
 			}
 			appLogger.Info(component, "Output file written: date=%s path=%s size=%d bytes", ex.Date, outputPath, len(jsonData))
-		}(extraction)
+		}(ctx, extraction)
 	}
 	wg.Wait()
 	return true, nil
@@ -238,6 +256,32 @@ func main() {
 
 	starting_time := time.Now()
 	appLogger.Info(component, "Application starting: startTime=%s", starting_time.Format(time.RFC3339))
+
+	cfg := config{
+		db: dbConfig{
+			addr:         env.GetString("DB_ADDR", "postgres://admin:helloworld@localhost:5454/transparency_wrapper_db?sslmode=disable"),
+			maxOpenConns: env.GetInt("DB_MAX_OPEN_CONNS", 25),
+			maxIdleConns: env.GetInt("DB_MAX_IDLE_CONNS", 25),
+			maxIdleTime:  env.GetString("DB_MAX_IDLE_TIME", "15m"),
+		},
+	}
+
+	database, err := db.New(
+		cfg.db.addr,
+		cfg.db.maxOpenConns,
+		cfg.db.maxIdleConns,
+		cfg.db.maxIdleTime)
+
+	if err != nil {
+		appLogger.Fatal(component, "Database connection failed: error=%v", err)
+		return
+	}
+	defer database.Close()
+	appLogger.Info(component, "Database connection pool established")
+
+	storage := store.NewStorage(database)
+	ctx := context.Background()
+
 	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
 	initDatePtr := flag.String("init", yesterday, "Initial date for data extraction")
 	endDatePtr := flag.String("end", yesterday, "End date for data extraction")
@@ -267,7 +311,7 @@ func main() {
 	appLogger.Info(component, "Application started: initDate=%s endDate=%s ugsCount=%d logLevel=%s", init_date, end_date, len(ugs), *logLevelPtr)
 
 	// Create necessary directories
-	err := createTmpDirs(appLogger)
+	err = createTmpDirs(appLogger)
 
 	if err != nil {
 		appLogger.Fatal(component, "Failed to create temporary directories: error=%v", err)
@@ -300,7 +344,7 @@ func main() {
 		return
 	}
 
-	ok, err := ProcessExtractions(extractions, ugs, appLogger, *commitmentsOnlyPtr)
+	ok, err := ProcessExtractions(ctx, extractions, ugs, appLogger, *commitmentsOnlyPtr, storage)
 	if err != nil || !ok {
 		appLogger.Fatal(component, "Data processing failed: error=%v", err)
 		return

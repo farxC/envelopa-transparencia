@@ -12,7 +12,7 @@ func main() {
 	cfg := config{
 		addr: env.GetString("ADDR", ":8080"),
 		db: dbConfig{
-			addr:         env.GetString("DB_ADDR", "postgres://user:password@localhost:5432/dbname?sslmode=disable"),
+			addr:         env.GetString("DB_ADDR", "postgres://admin:helloworld@localhost:5454/transparency_wrapper_db?sslmode=disable"),
 			maxOpenConns: env.GetInt("DB_MAX_OPEN_CONNS", 25),
 			maxIdleConns: env.GetInt("DB_MAX_IDLE_CONNS", 25),
 			maxIdleTime:  env.GetString("DB_MAX_IDLE_TIME", "15m"),
@@ -32,6 +32,7 @@ func main() {
 	log.Printf("Database connection pool established")
 
 	storage := store.NewStorage(db)
+
 	app := &application{
 		config: cfg,
 		store:  *storage,
