@@ -71,6 +71,8 @@ var columnsForDataType = map[types.DataType][]string{
 		"Id Empenho",
 		"Código Empenho",
 		"Código Empenho Resumido",
+		"Código Tipo Documento",
+		"Tipo Documento",
 		"Data Emissão",
 		"Tipo Empenho",
 		"Código Unidade Gestora",

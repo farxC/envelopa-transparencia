@@ -2,6 +2,7 @@ tmp
 output
 *.env
 bin/
+.vscode
 
 ARCHITECTURE_DESIGN.md
 SYSTEM_DESIGN.md

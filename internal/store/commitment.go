@@ -64,7 +64,6 @@ func (cs *CommitmentStore) InsertCommitment(ctx context.Context, commitment *Com
 
 func (cs *CommitmentStore) InsertCommitmentItem(ctx context.Context, item *CommitmentItem) error {
 	query := `INSERT INTO commitment_items (
-		id,
 		commitment_id,
 		commitment_code,
 		expense_nature_code,
@@ -81,7 +80,6 @@ func (cs *CommitmentStore) InsertCommitmentItem(ctx context.Context, item *Commi
 		inserted_at,
 		updated_at
 	) VALUES (
-		:id,
 		:commitment_id,
 		:commitment_code,
 		:expense_nature_code,
@@ -110,7 +108,6 @@ func (cs *CommitmentStore) InsertCommitmentItem(ctx context.Context, item *Commi
 }
 func (cs *CommitmentStore) InsertCommitmentItemHistory(ctx context.Context, history *CommitmentItemsHistory) error {
 	query := `INSERT INTO commitment_items_history (
-		id,
 		commitment_id,
 		commitment_code,
 		operation_type,
@@ -122,7 +119,6 @@ func (cs *CommitmentStore) InsertCommitmentItemHistory(ctx context.Context, hist
 		inserted_at,
 		updated_at
 	) VALUES (
-		:id,
 		:commitment_id,
 		:commitment_code,
 		:operation_type,

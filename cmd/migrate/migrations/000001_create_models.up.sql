@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS commitments (
     emission_date TIMESTAMP NOT NULL,
     type VARCHAR(100),
     process VARCHAR(255),
+    document_code_type VARCHAR(100),
+    document_type VARCHAR(100),
     management_unit_name VARCHAR(255),
     management_unit_code INTEGER,
     management_code INTEGER,

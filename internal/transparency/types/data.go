@@ -97,6 +97,8 @@ type Commitment struct {
 	ManagementUnitCode            int              `json:"management_unit_code"`
 	ManagementCode                int              `json:"management_code"`
 	ManagementName                string           `json:"management_name"`
+	DocumentCodeType              string           `json:"document_code_type"`
+	DocumentType                  string           `json:"document_type"`
 	FavoredName                   string           `json:"favored_name"`
 	FavoredCode                   string           `json:"favored_code"`
 	ExpenseNature                 string           `json:"expense_nature"`
@@ -151,11 +153,11 @@ type Payment struct {
 	PaymentCodeResumed    string                      `json:"payment_code_resumed"`
 	PaymentEmitionDate    string                      `json:"payment_emition_date"`
 	DocumentCodeType      string                      `json:"document_code_type"`
+	DocumentType          string                      `json:"document_type"`
 	ManagementUnitName    string                      `json:"management_unit_name"`
 	ManagementUnitCode    int                         `json:"management_unit_code"`
 	ManagementCode        int                         `json:"management_code"`
 	ManagementName        string                      `json:"management_name"`
-	DocumentType          string                      `json:"document_type"`
 	FavoredCode           string                      `json:"favored_code"`
 	FavoredName           string                      `json:"favored_name"`
 	Observation           string                      `json:"observation"`

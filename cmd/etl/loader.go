@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -52,7 +53,6 @@ func LoadPayload(ctx context.Context, payload *types.CommitmentPayload, storage 
 	for _, unit := range payload.UnitCommitments {
 		// Process Commitments
 		for _, c := range unit.Commitments {
-			now := time.Now()
 			emissionDate, err := parseDate(c.EmitionDate)
 			if err != nil {
 				appLogger.Warn(component, "Failed to parse emission date for commitment %s: %v", c.CommitmentCode, err)
@@ -76,6 +76,8 @@ func LoadPayload(ctx context.Context, payload *types.CommitmentPayload, storage 
 				EmissionDate:                  emissionDate,
 				Type:                          c.Type,
 				Process:                       c.Process,
+				DocumentCodeType:              c.DocumentCodeType,
+				DocumentType:                  c.DocumentType,
 				ManagementUnitName:            c.ManagementUnitName,
 				ManagementUnitCode:            c.ManagementUnitCode,
 				ManagementCode:                c.ManagementCode,
@@ -87,8 +89,6 @@ func LoadPayload(ctx context.Context, payload *types.CommitmentPayload, storage 
 				CommitmentOriginalValue:       origVal,
 				CommitmentValueConvertedToBrl: convVal,
 				ConversionValueUsed:           convUsed,
-				InsertedAt:                    now,
-				UpdatedAt:                     now,
 			}
 
 			if err := storage.Commitment.InsertCommitment(ctx, commitment); err != nil {
@@ -106,20 +106,20 @@ func LoadPayload(ctx context.Context, payload *types.CommitmentPayload, storage 
 				currPrice, _ := parseFloat(item.UnitPrice)
 
 				commItem := &store.CommitmentItem{
-					CommitmentID:      id, // Use the parsed ID from the parent commitment
-					CommitmentCode:    item.CommitmentCode,
-					ExpenseCategory:   item.ExpenseCategory,
-					ExpenseGroup:      item.ExpenseGroup,
-					ExpenseElement:    item.ExpenseElement,
-					Description:       item.Description,
-					Quantity:          qty,
-					Sequential:        parseInt16(item.Sequential),
-					UnitPrice:         unitPrice,
-					CurrentValue:      currVal,
-					CurrentPrice:      currPrice,
-					TotalPrice:        totalPrice,
-					InsertedAt:        nowItem,
-					UpdatedAt:         nowItem,
+					CommitmentID:    id, // Use the parsed ID from the parent commitment
+					CommitmentCode:  item.CommitmentCode,
+					ExpenseCategory: item.ExpenseCategory,
+					ExpenseGroup:    item.ExpenseGroup,
+					ExpenseElement:  item.ExpenseElement,
+					Description:     item.Description,
+					Quantity:        qty,
+					Sequential:      parseInt16(item.Sequential),
+					UnitPrice:       unitPrice,
+					CurrentValue:    currVal,
+					CurrentPrice:    currPrice,
+					TotalPrice:      totalPrice,
+					InsertedAt:      nowItem,
+					UpdatedAt:       nowItem,
 				}
 
 				if err := storage.Commitment.InsertCommitmentItem(ctx, commItem); err != nil {
@@ -156,7 +156,7 @@ func LoadPayload(ctx context.Context, payload *types.CommitmentPayload, storage 
 
 		// Process Liquidations
 		for _, l := range unit.Liquidations {
-			now := time.Now()
+
 			emissionDate, err := parseDate(l.LiquidationEmitionDate)
 			if err != nil {
 				appLogger.Warn(component, "Failed to parse emission date for liquidation %s: %v", l.LiquidationCode, err)
@@ -177,14 +177,13 @@ func LoadPayload(ctx context.Context, payload *types.CommitmentPayload, storage 
 				FavoredCode:             favoredCode,
 				FavoredName:             l.FavoredName,
 				Observation:             l.Observation,
-				InsertedAt:              now,
-				UpdatedAt:               now,
 			}
 
-			if err := storage.Liquidation.InsertLiquidation(ctx, liquidation); err != nil {
-				appLogger.Error(component, "Failed to insert liquidation %s: %v", l.LiquidationCode, err)
-				continue
-			}
+			// if err := storage.Liquidation.InsertLiquidation(ctx, liquidation); err != nil {
+			// 	appLogger.Error(component, "Failed to insert liquidation %s: %v", l.LiquidationCode, err)
+			// 	continue
+			// }
+			fmt.Printf("Liquidation: %+v\n", liquidation)
 
 			for _, imp := range l.ImpactedCommitments {
 				nowImp := time.Now()
@@ -205,15 +204,16 @@ func LoadPayload(ctx context.Context, payload *types.CommitmentPayload, storage 
 					InsertedAt:                    nowImp,
 					UpdatedAt:                     nowImp,
 				}
-				if err := storage.Liquidation.InsertLiquidationImpactedCommitment(ctx, lic); err != nil {
-					appLogger.Error(component, "Failed to insert liquidation impacted commitment %s: %v", imp.CommitmentCode, err)
-				}
+				fmt.Printf("Lic: %+v\n", lic)
+				// if err := storage.Liquidation.InsertLiquidationImpactedCommitment(ctx, lic); err != nil {
+				// 	appLogger.Error(component, "Failed to insert liquidation impacted commitment %s: %v", imp.CommitmentCode, err)
+				// }
 			}
 		}
 
 		// Process Payments
 		for _, p := range unit.Payments {
-			now := time.Now()
+
 			emissionDate, err := parseDate(p.PaymentEmitionDate)
 			if err != nil {
 				appLogger.Warn(component, "Failed to parse emission date for payment %s: %v", p.PaymentCode, err)
@@ -223,7 +223,7 @@ func LoadPayload(ctx context.Context, payload *types.CommitmentPayload, storage 
 			origVal, _ := parseFloat(p.OriginalPaymentValue)
 			convVal, _ := parseFloat(p.ConvertedPaymentValue)
 			convUsed, _ := parseFloat(p.ConversionUsedValue)
-			
+
 			extraBudgetary := false
 			if strings.EqualFold(p.ExtraBudgetary, "Sim") || strings.EqualFold(p.ExtraBudgetary, "Yes") || p.ExtraBudgetary == "1" {
 				extraBudgetary = true
@@ -246,14 +246,13 @@ func LoadPayload(ctx context.Context, payload *types.CommitmentPayload, storage 
 				OriginalPaymentValue:  origVal,
 				ConvertedPaymentValue: convVal,
 				ConversionUsedValue:   convUsed,
-				InsertedAt:            now,
-				UpdatedAt:             now,
 			}
 
-			if err := storage.Payment.InsertPayment(ctx, payment); err != nil {
-				appLogger.Error(component, "Failed to insert payment %s: %v", p.PaymentCode, err)
-				continue
-			}
+			fmt.Printf("Payment: %+v\n", payment)
+			// if err := storage.Payment.InsertPayment(ctx, payment); err != nil {
+			// 	appLogger.Error(component, "Failed to insert payment %s: %v", p.PaymentCode, err)
+			// 	continue
+			// }
 
 			for _, imp := range p.ImpactedCommitments {
 				nowImp := time.Now()
@@ -274,9 +273,10 @@ func LoadPayload(ctx context.Context, payload *types.CommitmentPayload, storage 
 					InsertedAt:                 nowImp,
 					UpdatedAt:                  nowImp,
 				}
-				if err := storage.Payment.InsertPaymentImpactedCommitment(ctx, pic); err != nil {
-					appLogger.Error(component, "Failed to insert payment impacted commitment %s: %v", imp.CommitmentCode, err)
-				}
+				fmt.Printf("Pic: %+v\n", pic)
+				// if err := storage.Payment.InsertPaymentImpactedCommitment(ctx, pic); err != nil {
+				// 	appLogger.Error(component, "Failed to insert payment impacted commitment %s: %v", imp.CommitmentCode, err)
+				// }
 			}
 		}
 	}

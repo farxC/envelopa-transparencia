@@ -13,7 +13,6 @@ type PaymentStore struct {
 
 func (ps *PaymentStore) InsertPayment(ctx context.Context, payment *Payment) error {
 	query := `INSERT INTO payments (
-		id,
 		payment_code,
 		payment_code_resumed,
 		payment_emission_date,
@@ -33,7 +32,6 @@ func (ps *PaymentStore) InsertPayment(ctx context.Context, payment *Payment) err
 		inserted_at,
 		updated_at
 	) VALUES (
-		:id,
 		:payment_code,
 		:payment_code_resumed,
 		:payment_emission_date,
@@ -66,7 +64,6 @@ func (ps *PaymentStore) InsertPayment(ctx context.Context, payment *Payment) err
 
 func (ps *PaymentStore) InsertPaymentImpactedCommitment(ctx context.Context, pic *PaymentImpactedCommitment) error {
 	query := `INSERT INTO payment_impacted_commitments (
-		id,
 		commitment_code,
 		payment_code,
 		expense_nature_code_complete,
@@ -78,7 +75,6 @@ func (ps *PaymentStore) InsertPaymentImpactedCommitment(ctx context.Context, pic
 		inserted_at,
 		updated_at
 	) VALUES (
-		:id,
 		:commitment_code,
 		:payment_code,
 		:expense_nature_code_complete,

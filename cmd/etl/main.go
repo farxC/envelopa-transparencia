@@ -195,7 +195,7 @@ func DonwloadData(init_parsed_date, end_parsed_date time.Time, appLogger *logger
 
 func ProcessExtractions(ctx context.Context, extractions []types.OutputExtractionFiles, ugs []string, appLogger *logger.Logger, commitmentsOnly bool, storage *store.Storage) (bool, error) {
 	const component = "DataProcessor"
-	MAX_CONCURRENT_EXTRACTIONS_DATA := 7
+	MAX_CONCURRENT_EXTRACTIONS_DATA := 1
 	extractions_semaphore := make(chan struct{}, MAX_CONCURRENT_EXTRACTIONS_DATA)
 	var wg sync.WaitGroup
 	appLogger.Info(component, "Starting data processing phase: extractionsReady=%d maxConcurrent=%d", len(extractions), MAX_CONCURRENT_EXTRACTIONS_DATA)

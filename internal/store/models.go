@@ -87,6 +87,8 @@ type Commitment struct {
 	EmissionDate                  time.Time `db:"emission_date"`
 	Type                          string    `db:"type"`
 	Process                       string    `db:"process"`
+	DocumentCodeType              string    `db:"document_code_type"`
+	DocumentType                  string    `db:"document_type"`
 	ManagementUnitName            string    `db:"management_unit_name"`
 	ManagementUnitCode            int       `db:"management_unit_code"`
 	ManagementCode                int       `db:"management_code"`

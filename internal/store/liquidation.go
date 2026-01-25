@@ -13,7 +13,6 @@ type LiquidationStore struct {
 
 func (ls *LiquidationStore) InsertLiquidation(ctx context.Context, liquidation *Liquidation) error {
 	query := `INSERT INTO liquidations (
-		id,
 		liquidation_code,
 		liquidation_code_resumed,
 		liquidation_emission_date,
@@ -29,7 +28,6 @@ func (ls *LiquidationStore) InsertLiquidation(ctx context.Context, liquidation *
 		inserted_at,
 		updated_at
 	) VALUES (
-		:id,	 	
 		:liquidation_code,
 		:liquidation_code_resumed,
 		:liquidation_emission_date,
@@ -58,7 +56,6 @@ func (ls *LiquidationStore) InsertLiquidation(ctx context.Context, liquidation *
 
 func (ls *LiquidationStore) InsertLiquidationImpactedCommitment(ctx context.Context, lic *LiquidationImpactedCommitment) error {
 	query := `INSERT INTO liquidation_impacted_commitments (
-		id,
 		commitment_code,
 		liquidation_code,
 		expense_nature_code,
@@ -70,7 +67,6 @@ func (ls *LiquidationStore) InsertLiquidationImpactedCommitment(ctx context.Cont
 		inserted_at,
 		updated_at
 	) VALUES (
-		:id,
 		:commitment_code,
 		:liquidation_code,
 		:expense_nature_code,
