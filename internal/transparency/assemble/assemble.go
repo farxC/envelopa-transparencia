@@ -3,6 +3,7 @@ package assemble
 import (
 	"sync"
 
+	"github.com/farxc/transparency_wrapper/internal/store"
 	"github.com/farxc/transparency_wrapper/internal/transparency/converter"
 	"github.com/farxc/transparency_wrapper/internal/transparency/types"
 	"github.com/go-gota/gota/dataframe"
@@ -34,9 +35,9 @@ func AssembleExpensesData(dfs ExpectedDataFrames) map[string]*types.UnitCommitme
 			unitsMap[ugCode] = &types.UnitCommitments{
 				UgCode:       ugCode,
 				UgName:       ugName,
-				Commitments:  []types.Commitment{},
-				Liquidations: []types.Liquidation{},
-				Payments:     []types.Payment{},
+				Commitments:  []store.Commitment{},
+				Liquidations: []store.Liquidation{},
+				Payments:     []store.Payment{},
 			}
 		}
 		// Update name if it was empty

@@ -6,25 +6,26 @@ import (
 
 // Payment represents the 'payments' table.
 type Payment struct {
-	ID                    int64     `db:"id"`
-	PaymentCode           string    `db:"payment_code"`
-	PaymentCodeResumed    string    `db:"payment_code_resumed"`
-	PaymentEmissionDate   time.Time `db:"payment_emission_date"`
-	DocumentCodeType      string    `db:"document_code_type"`
-	DocumentType          string    `db:"document_type"`
-	FavoredCode           int64     `db:"favored_code"`
-	FavoredName           string    `db:"favored_name"`
-	ManagementUnitName    string    `db:"management_unit_name"`
-	ManagementUnitCode    int       `db:"management_unit_code"`
-	ManagementCode        int       `db:"management_code"`
-	ManagementName        string    `db:"management_name"`
-	ExtraBudgetary        bool      `db:"extra_budgetary"`
-	Process               string    `db:"process"`
-	OriginalPaymentValue  float64   `db:"original_payment_value"`
-	ConvertedPaymentValue float64   `db:"converted_payment_value"`
-	ConversionUsedValue   float64   `db:"conversion_used_value"`
-	InsertedAt            time.Time `db:"inserted_at"`
-	UpdatedAt             time.Time `db:"updated_at"`
+	ID                    int64                       `db:"id"`
+	PaymentCode           string                      `db:"payment_code"`
+	PaymentCodeResumed    string                      `db:"payment_code_resumed"`
+	PaymentEmissionDate   time.Time                   `db:"payment_emission_date"`
+	DocumentCodeType      string                      `db:"document_code_type"`
+	DocumentType          string                      `db:"document_type"`
+	FavoredCode           int64                       `db:"favored_code"`
+	FavoredName           string                      `db:"favored_name"`
+	ManagementUnitName    string                      `db:"management_unit_name"`
+	ManagementUnitCode    int                         `db:"management_unit_code"`
+	ManagementCode        int                         `db:"management_code"`
+	ManagementName        string                      `db:"management_name"`
+	ExtraBudgetary        bool                        `db:"extra_budgetary"`
+	Process               string                      `db:"process"`
+	OriginalPaymentValue  float64                     `db:"original_payment_value"`
+	ConvertedPaymentValue float64                     `db:"converted_payment_value"`
+	ConversionUsedValue   float64                     `db:"conversion_used_value"`
+	InsertedAt            time.Time                   `db:"inserted_at"`
+	UpdatedAt             time.Time                   `db:"updated_at"`
+	ImpactedCommitments   []PaymentImpactedCommitment `db:"-" json:"impacted_commitments"`
 }
 
 // PaymentImpactedCommitment represents the 'payment_impacted_commitments' table.
@@ -45,21 +46,22 @@ type PaymentImpactedCommitment struct {
 
 // Liquidation represents the 'liquidations' table.
 type Liquidation struct {
-	ID                      int64     `db:"id"`
-	LiquidationCode         string    `db:"liquidation_code"`
-	LiquidationCodeResumed  string    `db:"liquidation_code_resumed"`
-	LiquidationEmissionDate time.Time `db:"liquidation_emission_date"`
-	DocumentCodeType        string    `db:"document_code_type"`
-	DocumentType            string    `db:"document_type"`
-	ManagementUnitName      string    `db:"management_unit_name"`
-	ManagementUnitCode      int       `db:"management_unit_code"`
-	ManagementCode          int       `db:"management_code"`
-	ManagementName          string    `db:"management_name"`
-	FavoredCode             int64     `db:"favored_code"`
-	FavoredName             string    `db:"favored_name"`
-	Observation             string    `db:"observation"`
-	InsertedAt              time.Time `db:"inserted_at"`
-	UpdatedAt               time.Time `db:"updated_at"`
+	ID                      int64                           `db:"id"`
+	LiquidationCode         string                          `db:"liquidation_code"`
+	LiquidationCodeResumed  string                          `db:"liquidation_code_resumed"`
+	LiquidationEmissionDate time.Time                       `db:"liquidation_emission_date"`
+	DocumentCodeType        string                          `db:"document_code_type"`
+	DocumentType            string                          `db:"document_type"`
+	ManagementUnitName      string                          `db:"management_unit_name"`
+	ManagementUnitCode      int                             `db:"management_unit_code"`
+	ManagementCode          int                             `db:"management_code"`
+	ManagementName          string                          `db:"management_name"`
+	FavoredCode             int64                           `db:"favored_code"`
+	FavoredName             string                          `db:"favored_name"`
+	Observation             string                          `db:"observation"`
+	InsertedAt              time.Time                       `db:"inserted_at"`
+	UpdatedAt               time.Time                       `db:"updated_at"`
+	ImpactedCommitments     []LiquidationImpactedCommitment `db:"-" json:"impacted_commitments"`
 }
 
 // LiquidationImpactedCommitment represents the 'liquidation_impacted_commitments' table.
@@ -81,47 +83,49 @@ type LiquidationImpactedCommitment struct {
 
 // Commitment represents the 'commitments' table.
 type Commitment struct {
-	ID                            int64     `db:"id"`
-	CommitmentCode                string    `db:"commitment_code"`
-	ResumedCommitmentCode         string    `db:"resumed_commitment_code"` // Inferred from "resumed_commitmen..."
-	EmissionDate                  time.Time `db:"emission_date"`
-	Type                          string    `db:"type"`
-	Process                       string    `db:"process"`
-	DocumentCodeType              string    `db:"document_code_type"`
-	DocumentType                  string    `db:"document_type"`
-	ManagementUnitName            string    `db:"management_unit_name"`
-	ManagementUnitCode            int       `db:"management_unit_code"`
-	ManagementCode                int       `db:"management_code"`
-	ManagementName                string    `db:"management_name"`
-	FavoredName                   string    `db:"favored_name"`
-	ExpenseNature                 string    `db:"expense_nature"`
-	ExpenseNatureCode             string    `db:"expense_nature_code"` // Inferred from "expense_nature_cod..."
-	BudgetPlan                    string    `db:"budget_plan"`
-	CommitmentOriginalValue       float64   `db:"commitment_original_value"`         // Inferred from "commitment_original..."
-	CommitmentValueConvertedToBrl float64   `db:"commitment_value_converted_to_brl"` // Inferred from "commitment_value_c..."
-	ConversionValueUsed           float64   `db:"conversion_value_used"`             // Inferred from "conversion_value_us..."
-	InsertedAt                    time.Time `db:"inserted_at"`
-	UpdatedAt                     time.Time `db:"updated_at"`
+	ID                            int64            `db:"id"`
+	CommitmentCode                string           `db:"commitment_code"`
+	ResumedCommitmentCode         string           `db:"resumed_commitment_code"` // Inferred from "resumed_commitmen..."
+	EmissionDate                  time.Time        `db:"emission_date"`
+	Type                          string           `db:"type"`
+	Process                       string           `db:"process"`
+	DocumentCodeType              string           `db:"document_code_type"`
+	DocumentType                  string           `db:"document_type"`
+	ManagementUnitName            string           `db:"management_unit_name"`
+	ManagementUnitCode            int              `db:"management_unit_code"`
+	ManagementCode                int              `db:"management_code"`
+	ManagementName                string           `db:"management_name"`
+	FavoredName                   string           `db:"favored_name"`
+	ExpenseNature                 string           `db:"expense_nature"`
+	ExpenseNatureCode             string           `db:"expense_nature_code"` // Inferred from "expense_nature_cod..."
+	BudgetPlan                    string           `db:"budget_plan"`
+	CommitmentOriginalValue       float64          `db:"commitment_original_value"`         // Inferred from "commitment_original..."
+	CommitmentValueConvertedToBrl float64          `db:"commitment_value_converted_to_brl"` // Inferred from "commitment_value_c..."
+	ConversionValueUsed           float64          `db:"conversion_value_used"`             // Inferred from "conversion_value_us..."
+	InsertedAt                    time.Time        `db:"inserted_at"`
+	UpdatedAt                     time.Time        `db:"updated_at"`
+	Items                         []CommitmentItem `db:"-" json:"items"`
 }
 
 // CommitmentItem represents the 'commitment_items' table.
 type CommitmentItem struct {
-	ID                int64     `db:"id"`
-	CommitmentID      int64     `db:"commitment_id"`
-	CommitmentCode    string    `db:"commitment_code"`
-	ExpenseNatureCode string    `db:"expense_nature_code"`
-	ExpenseCategory   string    `db:"expense_category"`
-	ExpenseGroup      string    `db:"expense_group"`
-	ExpenseElement    string    `db:"expense_element"`
-	Description       string    `db:"description"`
-	Quantity          float64   `db:"quantity"`
-	Sequential        int16     `db:"sequential"` // Mapped from smallint
-	UnitPrice         float64   `db:"unit_price"`
-	CurrentValue      float64   `db:"current_value"`
-	CurrentPrice      float64   `db:"current_price"`
-	TotalPrice        float64   `db:"total_price"`
-	InsertedAt        time.Time `db:"inserted_at"`
-	UpdatedAt         time.Time `db:"updated_at"`
+	ID                int64                    `db:"id"`
+	CommitmentID      int64                    `db:"commitment_id"`
+	CommitmentCode    string                   `db:"commitment_code"`
+	ExpenseNatureCode string                   `db:"expense_nature_code"`
+	ExpenseCategory   string                   `db:"expense_category"`
+	ExpenseGroup      string                   `db:"expense_group"`
+	ExpenseElement    string                   `db:"expense_element"`
+	Description       string                   `db:"description"`
+	Quantity          float64                  `db:"quantity"`
+	Sequential        int16                    `db:"sequential"` // Mapped from smallint
+	UnitPrice         float64                  `db:"unit_price"`
+	CurrentValue      float64                  `db:"current_value"`
+	CurrentPrice      float64                  `db:"current_price"`
+	TotalPrice        float64                  `db:"total_price"`
+	InsertedAt        time.Time                `db:"inserted_at"`
+	UpdatedAt         time.Time                `db:"updated_at"`
+	History           []CommitmentItemsHistory `db:"-" json:"history"`
 }
 
 // CommitmentItemsHistory represents the 'commitment_items_history' table.

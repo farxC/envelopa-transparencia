@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/farxc/transparency_wrapper/internal/logger"
+	"github.com/farxc/transparency_wrapper/internal/store"
 	"github.com/farxc/transparency_wrapper/internal/transparency/converter"
 	"github.com/farxc/transparency_wrapper/internal/transparency/files"
 	"github.com/farxc/transparency_wrapper/internal/transparency/types"
@@ -273,7 +274,7 @@ func FilterExtractionByColumn(extraction types.OutputExtractionFiles, targetData
 
 // attachItemsAndHistoryToCommitment attaches commitment items and their history to a commitment
 func AttachItemsAndHistoryToCommitment(
-	commitment *types.Commitment,
+	commitment *store.Commitment,
 	itemsDf dataframe.DataFrame,
 	historyDf dataframe.DataFrame,
 ) {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/farxc/transparency_wrapper/internal/logger"
+	"github.com/farxc/transparency_wrapper/internal/store"
 	"github.com/farxc/transparency_wrapper/internal/transparency/assemble"
 	"github.com/farxc/transparency_wrapper/internal/transparency/converter"
 	"github.com/farxc/transparency_wrapper/internal/transparency/files"
@@ -72,9 +73,9 @@ func BuildCommitmentPayload(extraction types.OutputExtractionFiles, unitsCode []
 				unitMap[ugCode] = &types.UnitCommitments{
 					UgCode:       ugCode,
 					UgName:       ugName,
-					Commitments:  []types.Commitment{},
-					Liquidations: []types.Liquidation{},
-					Payments:     []types.Payment{},
+					Commitments:  []store.Commitment{},
+					Liquidations: []store.Liquidation{},
+					Payments:     []store.Payment{},
 				}
 			}
 			// Update name if it was empty

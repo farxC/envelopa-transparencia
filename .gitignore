@@ -3,6 +3,8 @@ output
 *.env
 bin/
 .vscode
+.gemini
+.specify
 
 ARCHITECTURE_DESIGN.md
 SYSTEM_DESIGN.md
