@@ -110,7 +110,7 @@ func BuildCommitmentPayload(extraction types.OutputExtractionFiles, unitsCode []
 }
 
 // To do: Modularize this function further
-func ExtractData(extraction types.OutputExtractionFiles, unitsCode []string, appLogger *logger.Logger) (*types.CommitmentPayload, error) {
+func ExtractData(extraction types.OutputExtractionFiles, codes []string, isManagingCode bool, appLogger *logger.Logger) (*types.CommitmentPayload, error) {
 	const component = "DataExtractor"
 	var wg sync.WaitGroup
 
@@ -120,7 +120,7 @@ func ExtractData(extraction types.OutputExtractionFiles, unitsCode []string, app
 	}
 	formattedDate := extractionDate.Format("2006-01-02")
 
-	appLogger.Info(component, "Starting data extraction: date=%s unitsCount=%d", formattedDate, len(unitsCode))
+	appLogger.Info(component, "Starting data extraction: date=%s codesCount=%d", formattedDate, len(codes))
 
 	// Channel for collect DataFrames based in Unit Codes
 	ugMatches := make(chan types.MatchingDataframe, 3)
@@ -141,7 +141,11 @@ func ExtractData(extraction types.OutputExtractionFiles, unitsCode []string, app
 
 	appLogger.Debug(component, "Phase 1: Filtering by UG codes: date=%s", extractionDate)
 	// First, find all Commitments based in Unit Codes
-	query.FilterExtractionByColumn(extraction, hasUgCodeAsColumn, unitsCode, "Código Unidade Gestora", ugMatches, &wg, appLogger)
+	if isManagingCode {
+		query.FilterExtractionByColumn(extraction, hasUgCodeAsColumn, codes, "Código Gestão", ugMatches, &wg, appLogger)
+	} else {
+		query.FilterExtractionByColumn(extraction, hasUgCodeAsColumn, codes, "Código Unidade Gestora", ugMatches, &wg, appLogger)
+	}
 
 	wg.Wait()
 	close(ugMatches)

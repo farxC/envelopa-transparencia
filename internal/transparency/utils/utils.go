@@ -36,3 +36,31 @@ func GetInt(col string, rowIdx int, df *dataframe.DataFrame) int {
 	}
 	return 0
 }
+
+func GetInt16(col string, rowIdx int, df *dataframe.DataFrame) int16 {
+	if df == nil {
+		return 0
+	}
+	if idx := df.Names(); containsString(idx, col) {
+		val, err := df.Col(col).Elem(rowIdx).Int()
+		if err != nil {
+			return 0
+		}
+		return int16(val)
+	}
+	return 0
+}
+
+func GetInt32(col string, rowIdx int, df *dataframe.DataFrame) int32 {
+	if df == nil {
+		return 0
+	}
+	if idx := df.Names(); containsString(idx, col) {
+		val, err := df.Col(col).Elem(rowIdx).Int()
+		if err != nil {
+			return 0
+		}
+		return int32(val)
+	}
+	return 0
+}

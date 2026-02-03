@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -193,7 +192,7 @@ func DonwloadData(init_parsed_date, end_parsed_date time.Time, appLogger *logger
 	return extractions, nil
 }
 
-func ProcessExtractions(ctx context.Context, extractions []types.OutputExtractionFiles, ugs []string, appLogger *logger.Logger, commitmentsOnly bool, storage *store.Storage) (bool, error) {
+func ProcessExtractions(ctx context.Context, extractions []types.OutputExtractionFiles, codes []string, isManagingCode bool, appLogger *logger.Logger, commitmentsOnly bool, trigger string, storage *store.Storage) (bool, error) {
 	const component = "DataProcessor"
 	MAX_CONCURRENT_EXTRACTIONS_DATA := 1
 	extractions_semaphore := make(chan struct{}, MAX_CONCURRENT_EXTRACTIONS_DATA)
@@ -213,10 +212,10 @@ func ProcessExtractions(ctx context.Context, extractions []types.OutputExtractio
 
 			//Memory intensive
 			if !commitmentsOnly {
-				payload, err = transparency.ExtractData(ex, ugs, appLogger)
+				payload, err = transparency.ExtractData(ex, codes, isManagingCode, appLogger)
 			} else {
 				//Less memory intensive
-				payload, err = transparency.BuildCommitmentPayload(ex, ugs)
+				payload, err = transparency.BuildCommitmentPayload(ex, codes)
 			}
 
 			if err != nil {
@@ -224,21 +223,45 @@ func ProcessExtractions(ctx context.Context, extractions []types.OutputExtractio
 				return
 			}
 
-			jsonData, err := json.Marshal(payload)
-			if err != nil {
-				appLogger.Error(component, "JSON marshaling failed: date=%s error=%v", ex.Date, err)
-				return
-			}
-
 			err = load.LoadPayload(ctx, payload, storage, appLogger)
 
-			outputPath := fmt.Sprintf("output/extraction_%s.json", ex.Date)
-			if err := os.WriteFile(outputPath, jsonData, 0644); err != nil {
-				appLogger.Error(component, "Output file write failed: date=%s path=%s error=%v", ex.Date, outputPath, err)
-				return
-			}
-			appLogger.Info(component, "Output file written: date=%s path=%s size=%d bytes", ex.Date, outputPath, len(jsonData))
 		}(ctx, extraction)
+
+		parsedExtractionDate, err := time.Parse("2006-01-02", extraction.Date)
+		if err != nil {
+			appLogger.Error(component, "Failed to parse extraction date for ingestion history: date=%s error=%v", extraction.Date, err)
+			continue
+		}
+		now := time.Now()
+
+		var scope string
+		if isManagingCode {
+			scope = store.ScopeTypeManagement
+		} else {
+			scope = store.ScopeTypeManagingUnit
+		}
+
+		codesArr := []int64{}
+		for _, c := range codes {
+			var codeInt int64
+			fmt.Sscanf(c, "%d", &codeInt)
+			codesArr = append(codesArr, codeInt)
+		}
+
+		history := &store.IngestionHistory{
+			ReferenceDate:  parsedExtractionDate,
+			ProcessedAt:    now,
+			TriggerType:    trigger,
+			ScopeType:      scope,
+			Status:         store.StatusSuccess, // TODO: IMPROVE STATUS BASED ON ERRORS INSIDE GOROUTINES. MAYBE CREATE A CHANNEL TO COLLECT ERRORS AND ANOTHER TABLE TO STORE DETAILED ERRORS
+			SourceFile:     fmt.Sprintf("despesas_%s.zip", extraction.Date),
+			ProcessedCodes: codesArr,
+		}
+		err = storage.IngestionHistory.InsertIngestionHistory(ctx, history)
+		if err != nil {
+			appLogger.Error(component, "Failed to insert ingestion history: date=%s error=%v", extraction.Date, err)
+			continue
+		}
 	}
 	wg.Wait()
 	return true, nil
@@ -285,7 +308,9 @@ func main() {
 	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
 	initDatePtr := flag.String("init", yesterday, "Initial date for data extraction")
 	endDatePtr := flag.String("end", yesterday, "End date for data extraction")
-	ugsPtr := flag.String("ugs", "158454,158148,158341,158342,158343,158345,158376,158332,158533,158635,158636", "Comma-separated list of Unit Codes to extract")
+	byManagingCodePtr := flag.Bool("byManagingCode", false, "Extract data by managing code or managing unit code")
+	triggerPtr := flag.String("trigger", "manual", "Trigger source: manual, scheduled")
+	codesPtr := flag.String("codes", "158454,158148,158341,158342,158343,158345,158376,158332,158533,158635,158636", "Comma-separated list of Unit Codes to extract")
 	commitmentsOnlyPtr := flag.Bool("commitmentsOnly", true, "Process only commitments")
 	logLevelPtr := flag.String("loglevel", "info", "Log level: debug, info, warn, error")
 	flag.Parse()
@@ -306,9 +331,10 @@ func main() {
 
 	init_date := *initDatePtr
 	end_date := *endDatePtr
-	ugs := strings.Split(*ugsPtr, ",")
+	codes := strings.Split(*codesPtr, ",")
+	isManagingCode := *byManagingCodePtr
 
-	appLogger.Info(component, "Application started: initDate=%s endDate=%s ugsCount=%d logLevel=%s", init_date, end_date, len(ugs), *logLevelPtr)
+	appLogger.Info(component, "Application started: initDate=%s endDate=%s codesCount=%d logLevel=%s", init_date, end_date, len(codes), *logLevelPtr)
 
 	// Create necessary directories
 	err = createTmpDirs(appLogger)
@@ -344,7 +370,7 @@ func main() {
 		return
 	}
 
-	ok, err := ProcessExtractions(ctx, extractions, ugs, appLogger, *commitmentsOnlyPtr, storage)
+	ok, err := ProcessExtractions(ctx, extractions, codes, isManagingCode, appLogger, *commitmentsOnlyPtr, *triggerPtr, storage)
 	if err != nil || !ok {
 		appLogger.Fatal(component, "Data processing failed: error=%v", err)
 		return

@@ -2,7 +2,6 @@ package query
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/farxc/transparency_wrapper/internal/logger"
@@ -25,6 +24,18 @@ var columnsForDataType = map[types.DataType][]string{
 		"Extraorçamentário",
 		"Processo",
 		"Código Unidade Gestora",
+		"Código Categoria de Despesa",
+		"Categoria de Despesa",
+		"Código Grupo de Despesa",
+		"Grupo de Despesa",
+		"Código Modalidade de Aplicação",
+		"Modalidade de Aplicação",
+		"Código Elemento de Despesa",
+		"Elemento de Despesa",
+		"Plano Orçamentário",
+		"Código Plano Orçamentário",
+		"Observação",
+		"Código Plano Orçamentário",
 		"Unidade Gestora",
 		"Código Gestão",
 		"Gestão",
@@ -54,6 +65,16 @@ var columnsForDataType = map[types.DataType][]string{
 		"Unidade Gestora",
 		"Código Gestão",
 		"Gestão",
+		"Código Categoria de Despesa",
+		"Categoria de Despesa",
+		"Código Grupo de Despesa",
+		"Grupo de Despesa",
+		"Código Modalidade de Aplicação",
+		"Modalidade de Aplicação",
+		"Código Elemento de Despesa",
+		"Elemento de Despesa",
+		"Plano Orçamentário",
+		"Código Plano Orçamentário",
 		"Código Favorecido",
 		"Favorecido",
 		"Observação",
@@ -83,8 +104,19 @@ var columnsForDataType = map[types.DataType][]string{
 		"Processo",
 		"Favorecido",
 		"Código Favorecido",
+		"Tipo Crédito",
+		"Código Grupo Fonte Recurso",
+		"Grupo Fonte Recurso",
+		"Código Categoria de Despesa",
+		"Categoria de Despesa",
+		"Código Grupo de Despesa",
+		"Grupo de Despesa",
+		"Código Modalidade de Aplicação",
+		"Modalidade de Aplicação",
+		"Código Elemento de Despesa",
 		"Elemento de Despesa",
 		"Plano Orçamentário",
+		"Modalidade de Licitação",
 		"Valor Original do Empenho",
 		"Valor do Empenho Convertido pra R$",
 		"Valor Utilizado na Conversão",
@@ -92,10 +124,16 @@ var columnsForDataType = map[types.DataType][]string{
 	types.DespesasItemEmpenho: {
 		"Id Empenho",
 		"Código Empenho",
+		"Código Categoria de Despesa",
 		"Categoria de Despesa",
+		"Código Grupo de Despesa",
 		"Grupo de Despesa",
+		"Código Modalidade de Aplicação",
 		"Modalidade de Aplicação",
+		"Código Elemento de Despesa",
 		"Elemento de Despesa",
+		"Código SubElemento de Despesa",
+		"SubElemento de Despesa",
 		"Descrição",
 		"Quantidade",
 		"Valor Unitário",
@@ -115,35 +153,6 @@ var columnsForDataType = map[types.DataType][]string{
 	},
 }
 
-func concatCompleteExpenseNature(originalDf dataframe.DataFrame) (dataframe.DataFrame, error) {
-	var expenseNatureCols = []string{"Código Categoria de Despesa", "Código Grupo de Despesa", "Código Modalidade de Aplicação", "Código Elemento de Despesa"}
-
-	completeExpenseNature := originalDf.Select(expenseNatureCols).Rapply(func(s series.Series) series.Series {
-		rowValues := s.Records()
-		joined := strings.Join(rowValues, ".")
-		return series.Strings(joined)
-	})
-	if completeExpenseNature.Error() != nil {
-		return dataframe.DataFrame{}, fmt.Errorf("error creating complete expense nature: %v", completeExpenseNature.Error())
-	}
-
-	return originalDf.Mutate(series.New(completeExpenseNature.Col("X0"), series.String, "Natureza de Despesa Completa")), nil
-}
-
-func dataframeContainsExpenseNatureColumns(df dataframe.DataFrame) bool {
-	var expenseNatureCols = []string{"Código Categoria de Despesa", "Código Grupo de Despesa", "Código Modalidade de Aplicação", "Código Elemento de Despesa"}
-
-	for _, name := range df.Names() {
-		for _, col := range expenseNatureCols {
-			if name == col {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
 // Validates if the data type is supported for transformation
 func validateDataTypeForTransformation(dfType types.DataType) error {
 	if _, ok := columnsForDataType[dfType]; !ok {
@@ -152,39 +161,14 @@ func validateDataTypeForTransformation(dfType types.DataType) error {
 	return nil
 }
 
-// Prepares the dataframe by adding computed columns if needed
-func prepareDataframeWithComputedColumns(df dataframe.DataFrame) (dataframe.DataFrame, []string, error) {
-	result := df
-	additionalCols := []string{}
-
-	if dataframeContainsExpenseNatureColumns(df) {
-		var err error
-		result, err = concatCompleteExpenseNature(df)
-		if err != nil {
-			return dataframe.DataFrame{}, nil, fmt.Errorf("error concatenating complete expense nature: %v", err)
-		}
-		additionalCols = append(additionalCols, "Natureza de Despesa Completa")
-	}
-
-	return result, additionalCols, nil
-}
-
 func SelectDataframeColumns(df dataframe.DataFrame, dfType types.DataType) (dataframe.DataFrame, error) {
 
-	// 1. Validate data type
 	if err := validateDataTypeForTransformation(dfType); err != nil {
 		return dataframe.DataFrame{}, err
 	}
 
-	// 2. Prepare dataframe with computed columns
-	result, additionalCols, err := prepareDataframeWithComputedColumns(df)
-	if err != nil {
-		return dataframe.DataFrame{}, err
-	}
-
-	// 3. Select required columns
-	selectedCols := append(columnsForDataType[dfType], additionalCols...)
-	result = result.Select(selectedCols)
+	selectedCols := columnsForDataType[dfType]
+	result := df.Select(selectedCols)
 
 	if result.Error() != nil {
 		return dataframe.DataFrame{}, fmt.Errorf("error selecting columns: %v", result.Error())

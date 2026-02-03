@@ -47,7 +47,7 @@ func LoadPayload(ctx context.Context, payload *types.CommitmentPayload, storage 
 			}
 		}
 
-		// Process Liquidations
+		// // Process Liquidations
 		for _, l := range unit.Liquidations {
 			liquidation := l
 			liquidation.InsertedAt = time.Now()
@@ -70,7 +70,7 @@ func LoadPayload(ctx context.Context, payload *types.CommitmentPayload, storage 
 			}
 		}
 
-		// Process Payments
+		// // Process Payments
 		for _, p := range unit.Payments {
 			payment := p
 			payment.InsertedAt = time.Now()
