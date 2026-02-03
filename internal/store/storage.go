@@ -6,6 +6,8 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+type ExpenseRecord struct {
+}
 type Storage struct {
 	Commitment interface {
 		InsertCommitment(ctx context.Context, commitment *Commitment) error
@@ -26,6 +28,11 @@ type Storage struct {
 	IngestionHistory interface {
 		InsertIngestionHistory(ctx context.Context, history *IngestionHistory) error
 	}
+
+	Expenses interface {
+		SearchConsolidatedExpensesByExpensesNature(ctx context.Context, e ExpensesFilter) (map[string]float64, error)
+		FilterExpensesTable(ctx context.Context, e ExpensesFilter) (ExpensesTableResult, error)
+	}
 }
 
 func NewStorage(db *sqlx.DB) *Storage {
@@ -34,6 +41,7 @@ func NewStorage(db *sqlx.DB) *Storage {
 		Liquidation:      &LiquidationStore{db: db},
 		Payment:          &PaymentStore{db: db},
 		IngestionHistory: &IngestionHistoryStore{db: db},
+		Expenses:         &ExpensesStore{db: db},
 	}
 
 }
