@@ -64,3 +64,17 @@ func GetInt32(col string, rowIdx int, df *dataframe.DataFrame) int32 {
 	}
 	return 0
 }
+
+func GetInt64(col string, rowIdx int, df *dataframe.DataFrame) int64 {
+	if df == nil {
+		return 0
+	}
+	if idx := df.Names(); containsString(idx, col) {
+		val, err := df.Col(col).Elem(rowIdx).Int()
+		if err != nil {
+			return 0
+		}
+		return int64(val)
+	}
+	return 0
+}

@@ -6,108 +6,12 @@ import (
 	"time"
 
 	"github.com/farxc/transparency_wrapper/internal/logger"
-	"github.com/farxc/transparency_wrapper/internal/store"
 	"github.com/farxc/transparency_wrapper/internal/transparency/assemble"
-	"github.com/farxc/transparency_wrapper/internal/transparency/converter"
 	"github.com/farxc/transparency_wrapper/internal/transparency/files"
 	"github.com/farxc/transparency_wrapper/internal/transparency/query"
 	"github.com/farxc/transparency_wrapper/internal/transparency/types"
 	"github.com/go-gota/gota/dataframe"
 )
-
-func BuildCommitmentPayload(extraction types.OutputExtractionFiles, unitsCode []string) (*types.CommitmentPayload, error) {
-
-	const component = "CommitmentExtractor"
-	extractionDate, err := time.Parse("20060102", extraction.Date)
-	if err != nil {
-		return nil, fmt.Errorf("invalid extraction date format: %v", err)
-	}
-	formattedDate := extractionDate.Format("2006-01-02")
-
-	if p, ok := extraction.Files[types.DespesasEmpenho]; ok {
-		df, err := files.OpenFileAndDecode(p)
-		if err != nil {
-			return nil, err
-		}
-
-		commitmentsMatchingDf := query.FindRowsSync(df, types.DespesasEmpenho, unitsCode, "Código Unidade Gestora")
-
-		if commitmentsMatchingDf.Nrow() == 0 {
-			return nil, fmt.Errorf("no matching commitments found for extraction date %s", extractionDate)
-		}
-		// Prepare to hold items and history dataframes if needed
-		var commitmentsItemsMatchingDf dataframe.DataFrame
-		var commitmentItemsHistoryDf dataframe.DataFrame
-
-		// Get commitment codes for sub-extraction
-		ugsCommitments := commitmentsMatchingDf.Col("Código Empenho").Records()
-
-		if p, ok := extraction.Files[types.DespesasItemEmpenho]; ok {
-			df, err = files.OpenFileAndDecode(p)
-			if err != nil {
-				return nil, err
-			}
-			commitmentsItemsMatchingDf = query.FindRowsSync(df, types.DespesasItemEmpenho, ugsCommitments, "Código Empenho")
-		}
-
-		if p, ok := extraction.Files[types.DespesasItemEmpenhoHistorico]; ok {
-			df, err = files.OpenFileAndDecode(p)
-			if err != nil {
-				return nil, err
-			}
-			commitmentItemsHistoryDf = query.FindRowsSync(df, types.DespesasItemEmpenhoHistorico, ugsCommitments, "Código Empenho")
-		}
-
-		// Build the hierarchical JSON structure
-		payload := &types.CommitmentPayload{
-			ExtractionDate:  formattedDate,
-			UnitCommitments: []types.UnitCommitments{},
-		}
-
-		// Group by Unit Code
-		unitMap := make(map[string]*types.UnitCommitments)
-
-		// Helper to get or create unit entry
-		getOrCreateUnit := func(ugCode, ugName string) *types.UnitCommitments {
-			if _, exists := unitMap[ugCode]; !exists {
-				unitMap[ugCode] = &types.UnitCommitments{
-					UgCode:       ugCode,
-					UgName:       ugName,
-					Commitments:  []store.Commitment{},
-					Liquidations: []store.Liquidation{},
-					Payments:     []store.Payment{},
-				}
-			}
-			// Update name if it was empty
-			if unitMap[ugCode].UgName == "" && ugName != "" {
-				unitMap[ugCode].UgName = ugName
-			}
-			return unitMap[ugCode]
-		}
-
-		// Process commitments (empenhos)
-		for i := 0; i < commitmentsMatchingDf.Nrow(); i++ {
-			ugCode := commitmentsMatchingDf.Col("Código Unidade Gestora").Elem(i).String()
-			ugName := commitmentsMatchingDf.Col("Unidade Gestora").Elem(i).String()
-			unit := getOrCreateUnit(ugCode, ugName)
-
-			commitment := converter.DfRowToCommitment(commitmentsMatchingDf, i)
-
-			query.AttachItemsAndHistoryToCommitment(&commitment, commitmentsItemsMatchingDf, commitmentItemsHistoryDf)
-
-			unit.Commitments = append(unit.Commitments, commitment)
-		}
-
-		// Convert map to slice
-		for _, unit := range unitMap {
-			payload.UnitCommitments = append(payload.UnitCommitments, *unit)
-		}
-
-		return payload, nil
-
-	}
-	return nil, fmt.Errorf("no commitment file found in extraction for date %s", extractionDate)
-}
 
 // To do: Modularize this function further
 func ExtractData(extraction types.OutputExtractionFiles, codes []string, isManagingCode bool, appLogger *logger.Logger) (*types.CommitmentPayload, error) {
