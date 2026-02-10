@@ -78,7 +78,7 @@ func (ls *LiquidationStore) InsertLiquidationImpactedCommitment(ctx context.Cont
 	query := `INSERT INTO liquidation_impacted_commitments (
 		commitment_code,
 		liquidation_code,
-		expense_nature_code,
+		expense_nature_code_complete,
 		subitem,
 		liquidated_value_brl,
 		registered_payables_value_brl,
@@ -89,7 +89,7 @@ func (ls *LiquidationStore) InsertLiquidationImpactedCommitment(ctx context.Cont
 	) VALUES (
 		:commitment_code,
 		:liquidation_code,
-		:expense_nature_code,
+		:expense_nature_code_complete,
 		:subitem,
 		:liquidated_value_brl,
 		:registered_payables_value_brl,

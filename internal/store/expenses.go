@@ -20,77 +20,88 @@ const (
 	ByManagement     ScopeType = "management"
 )
 
+type ExpensesTableSummaryRow struct {
+	ManagementUnitCode    string  `db:"management_unit_code" json:"management_unit_code"`
+	CommittedAmount       float64 `db:"committed_amount" json:"committed_amount"`
+	LiquidatedAmount      float64 `db:"liquidated_amount" json:"liquidated_amount"`
+	PaidAmount            float64 `db:"paid_amount" json:"paid_amount"`
+	BalanceToLiquidate    float64 `db:"balance_to_liquidate" json:"balance_to_liquidate"`
+	BalanceToPayProcessed float64 `db:"balance_to_pay_processed" json:"balance_to_pay_processed"`
+	ExecutionPercentage   float64 `db:"execution_percentage" json:"execution_percentage"`
+}
+
+type SummaryByUnits struct {
+	Rows []ExpensesTableSummaryRow `json:"rows"`
+}
+
+type BudgetExecutionReport struct {
+	ExpenseNatureCodeComplete string  `db:"expense_nature_code_complete" json:"expense_nature_code_complete"`
+	Subitem                   string  `db:"subitem" json:"subitem"`
+	TransactionsCount         int     `db:"transactions_count" json:"transactions_count"`
+	TotalPaidValue            float64 `db:"total_paid_value" json:"total_paid_value"`
+	AveragePaymentValue       float64 `db:"average_payment_value" json:"average_payment_value"`
+	OutstandingValuePaid      float64 `db:"outstanding_value_paid" json:"outstanding_value_paid"`
+}
+
+type BudgetExecutionReportByUnit map[string][]BudgetExecutionReport
+
 type ExpensesFilter struct {
-	StartDate time.Time `json:"start_date"`
-	EndDate   time.Time `json:"end_date"`
-	ScopeType ScopeType `json:"scope_type"`
-	Code      int       `json:"code"`
+	StartDate time.Time
+	EndDate   time.Time
+	Codes     string
 }
 
-type ExpensesTableResult struct {
-	CommittedAmount       float64 `db:"valor_empenhado" json:"valor_empenhado"`
-	LiquidatedAmount      float64 `db:"valor_liquidado" json:"valor_liquidado"`
-	PaidAmount            float64 `db:"valor_pago" json:"valor_pago"`
-	BalanceToLiquidate    float64 `db:"saldo_a_liquidar" json:"saldo_a_liquidar"`
-	BalanceToPayProcessed float64 `db:"saldo_a_pagar_processado" json:"saldo_a_pagar_processado"`
-	ExecutionPercentage   float64 `db:"percentual_execucao" json:"percentual_execucao"`
-}
-
-func (es *ExpensesStore) SearchConsolidatedExpensesByExpensesNature(ctx context.Context, e ExpensesFilter) (map[string]float64, error) {
-	var whereClause string
-
-	if e.ScopeType == ByManagementUnit {
-		whereClause = "c.management_unit_code = $3"
-	} else {
-		whereClause = "c.management_code = $3"
-	}
+/*
+This store is responsible for querying the database to generate the expenses summary and report based on the provided filters (date range and management unit codes).
+The GetBudgetExecutionReport method retrieves detailed information about expenses by nature for each management unit, while the GetBudgetExecutionSummary method provides a consolidated view of committed, liquidated, and paid amounts, along with execution percentages.
+*/
+func (es *ExpensesStore) GetBudgetExecutionReport(ctx context.Context, e ExpensesFilter) (BudgetExecutionReportByUnit, error) {
 
 	query := `
-		SELECT 
-			CONCAT(
-				c.expense_category_code, '.', 
-				c.expense_group_code, '.', 
-				LPAD(c.application_modality_code::text, 2, '0'), '.', 
-				LPAD(c.expense_element_code::text, 2, '0')
-			) AS natureza_despesa_completa,
-			c.expense_element AS descricao_elemento,
-			SUM(COALESCE(ci.current_value, 0)) AS valor_total_empenhado
-		FROM
-			commitments c 
-		LEFT JOIN 
-			commitment_items ci ON c.id = ci.commitment_id 
-		WHERE 
-			c.emission_date BETWEEN $1 AND $2
-		AND
-			` + whereClause + `
-		GROUP BY
-			c.expense_category_code,
-			c.expense_group_code,
-			c.application_modality_code,
-			c.expense_element_code,
-			c.expense_element
-		ORDER BY 
-			valor_total_empenhado DESC;
+	SELECT 
+		c.management_unit_code AS management_unit_code,
+		pic.expense_nature_code_complete AS expense_nature_code_complete,
+		pic.subitem,
+		COUNT(pic.id) AS transactions_count,
+		SUM(pic.paid_value_brl) AS total_paid_value,
+		ROUND(AVG(pic.paid_value_brl), 2) AS average_payment_value,
+		SUM(pic.outstanding_value_paid_brl) AS outstanding_value_paid
+	FROM 
+		commitments c 
+	JOIN 
+		payment_impacted_commitments pic ON pic.commitment_code = c.commitment_code 
+	WHERE 
+		c.emission_date BETWEEN $1 AND $2
+		AND c.management_unit_code IN ($3) 
+		AND pic.expense_nature_code_complete IS NOT NULL 
+		AND pic.expense_nature_code_complete != ''
+	GROUP BY 
+		c.management_unit_code,
+		c.management_unit_name,
+		pic.expense_nature_code_complete, 
+		pic.subitem 
+	ORDER BY 
+		c.management_unit_code,
+		total_paid_value DESC;
 	`
-	rows, err := es.db.QueryxContext(ctx, query, e.StartDate, e.EndDate, e.Code)
+	rows, err := es.db.QueryxContext(ctx, query, e.StartDate, e.EndDate, e.Codes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query expenses by nature: %w", err)
 	}
 	defer rows.Close()
 
-	result := make(map[string]float64)
+	result := make(BudgetExecutionReportByUnit)
 
 	for rows.Next() {
-		var naturezaDespesa string
-		var valorPorNatureza float64
-		var descricaoElemento string
+		rowResult := &BudgetExecutionReport{}
+		unitGroup := ""
 
-		err := rows.Scan(&naturezaDespesa, &descricaoElemento, &valorPorNatureza)
+		err := rows.Scan(&unitGroup, &rowResult.ExpenseNatureCodeComplete, &rowResult.Subitem, &rowResult.TransactionsCount, &rowResult.TotalPaidValue, &rowResult.AveragePaymentValue, &rowResult.OutstandingValuePaid)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
-		result[naturezaDespesa] = valorPorNatureza
+		result[unitGroup] = append(result[unitGroup], *rowResult)
 	}
 
 	if err = rows.Err(); err != nil {
@@ -100,105 +111,90 @@ func (es *ExpensesStore) SearchConsolidatedExpensesByExpensesNature(ctx context.
 	return result, nil
 }
 
-func (es *ExpensesStore) FilterExpensesTable(ctx context.Context, e ExpensesFilter) (ExpensesTableResult, error) {
-	w := make(map[string]string)
-
-	if e.ScopeType == ByManagementUnit {
-		w["liquidation"] = "l.management_unit_code = $3"
-		w["payment"] = "p.management_unit_code = $3"
-		w["commitment"] = "c.management_unit_code = $3"
-	} else {
-		w["liquidation"] = "l.management_code = $3"
-		w["payment"] = "p.management_code = $3"
-		w["commitment"] = "c.management_code = $3"
-	}
+func (es *ExpensesStore) GetBudgetExecutionSummary(ctx context.Context, e ExpensesFilter) (SummaryByUnits, error) {
 
 	query := `
-	WITH TotalEmpenhado AS (
+	WITH TotalCommitted AS (
 		SELECT 
-			COALESCE(SUM(ci.current_value), 0) AS valor_empenhado
+			management_unit_code as management_unit_code,
+			COALESCE(SUM(ci.current_value), 0) AS committed_amount
 		FROM 
 			commitments c 
 		LEFT JOIN 
 			commitment_items ci ON c.id = ci.commitment_id 
 		WHERE 
-			c.expense_category_code = 3 -- Custeio
-		AND
 			c.emission_date BETWEEN $1 AND $2
 		AND 
-			` + w["commitment"] + `
+			c.management_unit_code IN ($3)
+		GROUP BY 
+			management_unit_code
 	),
 
-	TotalLiquidado AS (
+	TotalLiquidated AS (
 		SELECT 
-			COALESCE(SUM(lic.liquidated_value_brl), 0) AS valor_liquidado
+			management_unit_code as management_unit_code,
+			COALESCE(SUM(lic.liquidated_value_brl), 0) AS liquidated_amount
 		FROM 
 			liquidations l
 		LEFT JOIN 
 			liquidation_impacted_commitments lic ON l.liquidation_code = lic.liquidation_code
 		WHERE 
-			lic.expense_nature_code LIKE '33%' -- Formato sem ponto
-		AND
 			l.liquidation_emission_date BETWEEN $1 AND $2
 		AND 
-			` + w["liquidation"] + `
+			l.management_unit_code IN ($3)
+		GROUP BY 
+			management_unit_code
 	),
 
-	TotalPago AS (
+	TotalPaid AS (
 		SELECT 
-			COALESCE(SUM(pic.paid_value_brl), 0) AS valor_pago
+			management_unit_code as management_unit_code,
+			COALESCE(SUM(pic.paid_value_brl), 0) AS paid_amount
 		FROM 
 			payments p
 		LEFT JOIN 
 			payment_impacted_commitments pic ON p.payment_code = pic.payment_code 
 		WHERE 
-			pic.expense_nature_code_complete LIKE '33%' -- Formato sem ponto
-		AND
 			p.payment_emission_date BETWEEN $1 AND $2
 		AND 
-			` + w["payment"] + `
+			p.management_unit_code IN ($3)
+		GROUP BY 
+			management_unit_code
 	)
 
 	-- 4. Consolidação
 	SELECT 
-		e.valor_empenhado,
-		l.valor_liquidado,
-		p.valor_pago,
-		(e.valor_empenhado - l.valor_liquidado) AS saldo_a_liquidar,
-		(l.valor_liquidado - p.valor_pago) AS saldo_a_pagar_processado,
+		c.management_unit_code,
+		c.committed_amount,
+		l.liquidated_amount,
+		p.paid_amount,
+		(c.committed_amount - l.liquidated_amount) AS balance_to_liquidate,
+		(l.liquidated_amount - p.paid_amount) AS balance_to_pay_processed,
 		CASE 
-			WHEN e.valor_empenhado > 0 THEN ROUND((p.valor_pago / e.valor_empenhado) * 100, 2)
+			WHEN c.committed_amount > 0 THEN ROUND((p.paid_amount / c.committed_amount) * 100, 2)
 			ELSE 0 
-		END AS percentual_execucao
+		END AS execution_percentage
 	FROM 
-		TotalEmpenhado e
-		CROSS JOIN TotalLiquidado l
-		CROSS JOIN TotalPago p;
+		TotalCommitted c
+		CROSS JOIN TotalLiquidated l
+		CROSS JOIN TotalPaid p;
 	`
 
-	var result ExpensesTableResult
+	// 33000000
 
-	err := es.db.GetContext(ctx, &result, query, e.StartDate, e.EndDate, e.Code)
+	var result ExpensesTableSummaryRow
+
+	err := es.db.GetContext(ctx, &result, query, e.StartDate, e.EndDate, e.Codes)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return ExpensesTableResult{
-				CommittedAmount:       0,
-				LiquidatedAmount:      0,
-				PaidAmount:            0,
-				BalanceToLiquidate:    0,
-				BalanceToPayProcessed: 0,
-				ExecutionPercentage:   0,
+			return SummaryByUnits{
+				Rows: []ExpensesTableSummaryRow{},
 			}, nil
 		}
-		return ExpensesTableResult{}, fmt.Errorf("failed to query consolidated expenses: %w", err)
+		return SummaryByUnits{}, fmt.Errorf("failed to query consolidated expenses: %w", err)
 	}
 
-	return ExpensesTableResult{
-		CommittedAmount:       result.CommittedAmount,
-		LiquidatedAmount:      result.LiquidatedAmount,
-		PaidAmount:            result.PaidAmount,
-		BalanceToLiquidate:    result.BalanceToLiquidate,
-		BalanceToPayProcessed: result.BalanceToPayProcessed,
-		ExecutionPercentage:   result.ExecutionPercentage,
+	return SummaryByUnits{
+		Rows: []ExpensesTableSummaryRow{result},
 	}, nil
 }

@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"log"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -76,13 +75,12 @@ func (cs *CommitmentStore) InsertCommitment(ctx context.Context, commitment *Com
 		:updated_at
 	)`
 
-	result, err := cs.db.NamedExec(query, commitment)
+	_, err := cs.db.NamedExec(query, commitment)
 
 	if err != nil {
 		return err
 	}
-	rowsAffected, _ := result.RowsAffected()
-	log.Printf("Insertion successful, %d rows affected.", rowsAffected)
+
 	return nil
 }
 
@@ -135,13 +133,11 @@ func (cs *CommitmentStore) InsertCommitmentItem(ctx context.Context, item *Commi
 		:updated_at
 	)`
 
-	result, err := cs.db.NamedExec(query, item)
+	_, err := cs.db.NamedExec(query, item)
 
 	if err != nil {
 		return err
 	}
-	rowsAffected, _ := result.RowsAffected()
-	log.Printf("Insertion successful, %d rows affected.", rowsAffected)
 	return nil
 }
 func (cs *CommitmentStore) InsertCommitmentItemHistory(ctx context.Context, history *CommitmentItemsHistory) error {
@@ -169,12 +165,10 @@ func (cs *CommitmentStore) InsertCommitmentItemHistory(ctx context.Context, hist
 		:updated_at
 	)`
 
-	result, err := cs.db.NamedExec(query, history)
+	_, err := cs.db.NamedExec(query, history)
 
 	if err != nil {
 		return err
 	}
-	rowsAffected, _ := result.RowsAffected()
-	log.Printf("Insertion successful, %d rows affected.", rowsAffected)
 	return nil
 }

@@ -12,19 +12,19 @@ type IngestionHistoryStore struct {
 }
 
 var (
-	ScopeTypeManagingUnit = "Unidade Gestora"
-	ScopeTypeManagement   = "Gestão"
+	ScopeTypeManagingUnit = "MANAGEMENT_UNIT"
+	ScopeTypeManagement   = "MANAGEMENT"
 )
 
 var (
-	TriggerTypeManual    = "manual"
-	TriggerTypeScheduled = "scheduled"
+	TriggerTypeManual    = "MANUAL"
+	TriggerTypeScheduled = "SCHEDULED"
 )
 
 var (
-	StatusSuccess = "success"
-	StatusFailure = "failure"
-	StatusPartial = "partial"
+	StatusSuccess = "SUCCESS"
+	StatusFailure = "FAILURE"
+	StatusPartial = "PARTIAL"
 )
 
 func (ih *IngestionHistoryStore) InsertIngestionHistory(ctx context.Context, history *IngestionHistory) error {

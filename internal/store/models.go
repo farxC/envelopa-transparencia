@@ -6,7 +6,6 @@ import (
 	"github.com/lib/pq"
 )
 
-// IngestionHistory represents the 'ingestion_history' table
 type IngestionHistory struct {
 	ID             int64         `db:"id"`
 	ProcessedAt    time.Time     `db:"processed_at"`
@@ -18,7 +17,6 @@ type IngestionHistory struct {
 	ProcessedCodes pq.Int64Array `db:"processed_codes"`
 }
 
-// Payment represents the 'payments' table.
 type Payment struct {
 	ID                      int64                       `db:"id"`
 	PaymentCode             string                      `db:"payment_code"`
@@ -53,13 +51,11 @@ type Payment struct {
 	ImpactedCommitments     []PaymentImpactedCommitment `db:"-" json:"impacted_commitments"`
 }
 
-// PaymentImpactedCommitment represents the 'payment_impacted_commitments' table.
-// Inferred table name from "payment_impacted_commitm...".
 type PaymentImpactedCommitment struct {
 	ID                         int64     `db:"id"`
 	CommitmentCode             string    `db:"commitment_code"`
 	PaymentCode                string    `db:"payment_code"`
-	ExpenseNatureCodeComplete  string    `db:"expense_nature_code_complete"`
+	ExpenseNatureCodeComplete  int64     `db:"expense_nature_code_complete"`
 	Subitem                    string    `db:"subitem"`
 	PaidValueBRL               float64   `db:"paid_value_brl"`
 	RegisteredPayablesValueBRL float64   `db:"registered_payables_value_brl"`
@@ -69,7 +65,6 @@ type PaymentImpactedCommitment struct {
 	UpdatedAt                  time.Time `db:"updated_at"`
 }
 
-// Liquidation represents the 'liquidations' table.
 type Liquidation struct {
 	ID                      int64                           `db:"id"`
 	LiquidationCode         string                          `db:"liquidation_code"`
@@ -99,14 +94,11 @@ type Liquidation struct {
 	ImpactedCommitments     []LiquidationImpactedCommitment `db:"-" json:"impacted_commitments"`
 }
 
-// LiquidationImpactedCommitment represents the 'liquidation_impacted_commitments' table.
-// The table name in the image is truncated to "liquidation_impac...", but
-// matches the pattern of "payment_impacted_commitments".
 type LiquidationImpactedCommitment struct {
 	ID                            int64     `db:"id"`
 	CommitmentCode                string    `db:"commitment_code"`
 	LiquidationCode               string    `db:"liquidation_code"`
-	ExpenseNatureCode             string    `db:"expense_nature_code"`
+	ExpenseNatureCodeComplete     int64     `db:"expense_nature_code_complete"`
 	Subitem                       string    `db:"subitem"`
 	LiquidatedValueBRL            float64   `db:"liquidated_value_brl"`
 	RegisteredPayablesValueBRL    float64   `db:"registered_payables_value_brl"`
@@ -116,7 +108,6 @@ type LiquidationImpactedCommitment struct {
 	UpdatedAt                     time.Time `db:"updated_at"`
 }
 
-// Commitment represents the 'commitments' table.
 type Commitment struct {
 	ID                            int64            `db:"id"`
 	CommitmentCode                string           `db:"commitment_code"`
@@ -165,7 +156,6 @@ type CommitmentItem struct {
 	ExpenseElement          string                   `db:"expense_element"`
 	SubExpenseElement       string                   `db:"sub_expense_element"`
 	SubExpenseElementCode   int16                    `db:"sub_expense_element_code"`
-	Observation             string                   `db:"observation"`
 	Description             string                   `db:"description"`
 	Quantity                float64                  `db:"quantity"`
 	Sequential              int16                    `db:"sequential"`
@@ -178,7 +168,6 @@ type CommitmentItem struct {
 	History                 []CommitmentItemsHistory `db:"-" json:"history"`
 }
 
-// CommitmentItemsHistory represents the 'commitment_items_history' table.
 type CommitmentItemsHistory struct {
 	ID             int64     `db:"id"`
 	CommitmentID   int64     `db:"commitment_id"`

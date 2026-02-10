@@ -30,8 +30,8 @@ type Storage struct {
 	}
 
 	Expenses interface {
-		SearchConsolidatedExpensesByExpensesNature(ctx context.Context, e ExpensesFilter) (map[string]float64, error)
-		FilterExpensesTable(ctx context.Context, e ExpensesFilter) (ExpensesTableResult, error)
+		GetBudgetExecutionReport(ctx context.Context, e ExpensesFilter) (BudgetExecutionReportByUnit, error)
+		GetBudgetExecutionSummary(ctx context.Context, e ExpensesFilter) (SummaryByUnits, error)
 	}
 }
 
