@@ -8,34 +8,103 @@ import (
 	"github.com/farxc/transparency_wrapper/internal/store"
 )
 
-func (app *application) handleFilterExpensesTable(w http.ResponseWriter, r *http.Request) {
+type GetExpensesSummaryResponse struct {
+	Success bool                 `json:"success"`
+	Message string               `json:"message,omitempty"`
+	Data    store.SummaryByUnits `json:"data,omitempty"`
+}
+
+type GetExpensesReportResponse struct {
+	Success bool                              `json:"success"`
+	Message string                            `json:"message,omitempty"`
+	Data    store.BudgetExecutionReportByUnit `json:"data,omitempty"`
+}
+
+func FormatCodesToString(codes []int) string {
+	codesToString := ""
+	for i, code := range codes {
+		if i > 0 {
+			codesToString += ","
+		}
+		codesToString += fmt.Sprintf("%d", code)
+	}
+	return codesToString
+}
+
+func isValidCodes(codeParam string) bool {
+	if codeParam == "" {
+		return false
+	}
+	// Check if all characters are digits, separated by commas
+	for _, r := range codeParam {
+		if (r < '0' || r > '9') && r != ',' {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (app *application) handleGetExpensesSummary(w http.ResponseWriter, r *http.Request) {
 	startParam := r.URL.Query().Get("start_date")
 	endParam := r.URL.Query().Get("end_date")
-	scopeTypeParam := r.URL.Query().Get("scope_type")
-	codeParam := r.URL.Query().Get("code")
-
-	fmt.Println(startParam)
-	fmt.Println(endParam)
-	fmt.Println(scopeTypeParam)
-	fmt.Println(codeParam)
+	codeParam := r.URL.Query().Get("codes")
 
 	var filter store.ExpensesFilter
 
 	filter.StartDate, _ = time.Parse("2006-01-02", parseDateOrDefault(startParam, "2000-01-01"))
 	filter.EndDate, _ = time.Parse("2006-01-02", parseDateOrDefault(endParam, "2100-12-31"))
-	filter.Code = parseIntOrDefault(codeParam, 0)
-	filter.ScopeType = store.ScopeType(scopeTypeParam)
-
+	if !isValidCodes(codeParam) {
+		writeJSONError(w, http.StatusBadRequest, "invalid codes parameter")
+		return
+	}
+	filter.Codes = codeParam
 	ctx := r.Context()
-	fmt.Println(ctx)
-	data, err := app.store.Expenses.FilterExpensesTable(ctx, filter)
-	fmt.Printf("%+v\n", data)
+	data, err := app.store.Expenses.GetBudgetExecutionSummary(ctx, filter)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to filter expenses table: "+err.Error())
 		return
 	}
 
-	if err := writeJSON(w, http.StatusOK, data); err != nil {
+	response := &GetExpensesSummaryResponse{
+		Success: true,
+		Data:    data,
+		Message: "Successfully filtered expenses table by units",
+	}
+
+	if err := writeJSON(w, http.StatusOK, response); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to write response")
+	}
+}
+
+func (app *application) handleGetBudgetExecutionReport(w http.ResponseWriter, r *http.Request) {
+	startParam := r.URL.Query().Get("start_date")
+	endParam := r.URL.Query().Get("end_date")
+	codeParam := r.URL.Query().Get("codes")
+
+	var filter store.ExpensesFilter
+
+	filter.StartDate, _ = time.Parse("2006-01-02", parseDateOrDefault(startParam, "2000-01-01"))
+	filter.EndDate, _ = time.Parse("2006-01-02", parseDateOrDefault(endParam, "2100-12-31"))
+	if !isValidCodes(codeParam) {
+		writeJSONError(w, http.StatusBadRequest, "invalid codes parameter")
+		return
+	}
+	filter.Codes = codeParam
+	ctx := r.Context()
+	data, err := app.store.Expenses.GetBudgetExecutionReport(ctx, filter)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to get budget execution report: "+err.Error())
+		return
+	}
+
+	response := &GetExpensesReportResponse{
+		Success: true,
+		Data:    data,
+		Message: "Successfully retrieved budget execution report",
+	}
+
+	if err := writeJSON(w, http.StatusOK, response); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to write response")
 	}
 }

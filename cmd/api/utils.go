@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 func parseDateOrDefault(dateStr, defaultStr string) string {
 	if dateStr == "" {
@@ -19,4 +23,25 @@ func parseIntOrDefault(intStr string, defaultVal int) int {
 		return defaultVal
 	}
 	return val
+}
+
+func parseCSVToInts(csv string) []int {
+	if csv == "" {
+		return []int{}
+	}
+
+	parts := strings.Split(csv, ",")
+	result := make([]int, 0, len(parts))
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if num, err := strconv.Atoi(part); err == nil {
+			result = append(result, num)
+		}
+	}
+
+	return result
 }

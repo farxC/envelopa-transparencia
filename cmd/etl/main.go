@@ -192,7 +192,7 @@ func DonwloadData(init_parsed_date, end_parsed_date time.Time, appLogger *logger
 	return extractions, nil
 }
 
-func ProcessExtractions(ctx context.Context, extractions []types.OutputExtractionFiles, codes []string, isManagingCode bool, appLogger *logger.Logger, commitmentsOnly bool, trigger string, storage *store.Storage) (bool, error) {
+func ProcessExtractions(ctx context.Context, extractions []types.OutputExtractionFiles, codes []string, isManagingCode bool, appLogger *logger.Logger, trigger string, storage *store.Storage) (bool, error) {
 	const component = "DataProcessor"
 	MAX_CONCURRENT_EXTRACTIONS_DATA := 1
 	extractions_semaphore := make(chan struct{}, MAX_CONCURRENT_EXTRACTIONS_DATA)
@@ -211,12 +211,8 @@ func ProcessExtractions(ctx context.Context, extractions []types.OutputExtractio
 			var err error
 
 			//Memory intensive
-			if !commitmentsOnly {
-				payload, err = transparency.ExtractData(ex, codes, isManagingCode, appLogger)
-			} else {
-				//Less memory intensive
-				payload, err = transparency.BuildCommitmentPayload(ex, codes)
-			}
+
+			payload, err = transparency.ExtractData(ex, codes, isManagingCode, appLogger)
 
 			if err != nil {
 				appLogger.Warn(component, "Data extraction skipped: date=%s reason=%v", ex.Date, err)
@@ -224,44 +220,40 @@ func ProcessExtractions(ctx context.Context, extractions []types.OutputExtractio
 			}
 
 			err = load.LoadPayload(ctx, payload, storage, appLogger)
+			parsedExtractionDate, err := time.Parse("20060102", extraction.Date)
+			if err != nil {
+				appLogger.Error(component, "Failed to parse extraction date for ingestion history: date=%s error=%v", extraction.Date, err)
+			}
+			now := time.Now()
 
+			var scope string
+			if isManagingCode {
+				scope = store.ScopeTypeManagement
+			} else {
+				scope = store.ScopeTypeManagingUnit
+			}
+
+			codesArr := []int64{}
+			for _, c := range codes {
+				var codeInt int64
+				fmt.Sscanf(c, "%d", &codeInt)
+				codesArr = append(codesArr, codeInt)
+			}
+
+			history := &store.IngestionHistory{
+				ReferenceDate:  parsedExtractionDate,
+				ProcessedAt:    now,
+				TriggerType:    trigger,
+				ScopeType:      scope,
+				Status:         store.StatusSuccess, // TODO: IMPROVE STATUS BASED ON ERRORS INSIDE GOROUTINES. MAYBE CREATE A CHANNEL TO COLLECT ERRORS AND ANOTHER TABLE TO STORE DETAILED ERRORS
+				SourceFile:     fmt.Sprintf("despesas_%s.zip", extraction.Date),
+				ProcessedCodes: codesArr,
+			}
+			err = storage.IngestionHistory.InsertIngestionHistory(ctx, history)
+			if err != nil {
+				appLogger.Error(component, "Failed to insert ingestion history: date=%s error=%v", extraction.Date, err)
+			}
 		}(ctx, extraction)
-
-		parsedExtractionDate, err := time.Parse("2006-01-02", extraction.Date)
-		if err != nil {
-			appLogger.Error(component, "Failed to parse extraction date for ingestion history: date=%s error=%v", extraction.Date, err)
-			continue
-		}
-		now := time.Now()
-
-		var scope string
-		if isManagingCode {
-			scope = store.ScopeTypeManagement
-		} else {
-			scope = store.ScopeTypeManagingUnit
-		}
-
-		codesArr := []int64{}
-		for _, c := range codes {
-			var codeInt int64
-			fmt.Sscanf(c, "%d", &codeInt)
-			codesArr = append(codesArr, codeInt)
-		}
-
-		history := &store.IngestionHistory{
-			ReferenceDate:  parsedExtractionDate,
-			ProcessedAt:    now,
-			TriggerType:    trigger,
-			ScopeType:      scope,
-			Status:         store.StatusSuccess, // TODO: IMPROVE STATUS BASED ON ERRORS INSIDE GOROUTINES. MAYBE CREATE A CHANNEL TO COLLECT ERRORS AND ANOTHER TABLE TO STORE DETAILED ERRORS
-			SourceFile:     fmt.Sprintf("despesas_%s.zip", extraction.Date),
-			ProcessedCodes: codesArr,
-		}
-		err = storage.IngestionHistory.InsertIngestionHistory(ctx, history)
-		if err != nil {
-			appLogger.Error(component, "Failed to insert ingestion history: date=%s error=%v", extraction.Date, err)
-			continue
-		}
 	}
 	wg.Wait()
 	return true, nil
@@ -309,9 +301,8 @@ func main() {
 	initDatePtr := flag.String("init", yesterday, "Initial date for data extraction")
 	endDatePtr := flag.String("end", yesterday, "End date for data extraction")
 	byManagingCodePtr := flag.Bool("byManagingCode", false, "Extract data by managing code or managing unit code")
-	triggerPtr := flag.String("trigger", "manual", "Trigger source: manual, scheduled")
+	triggerPtr := flag.String("trigger", "MANUAL", "Trigger source: MANUAL, SCHEDULED")
 	codesPtr := flag.String("codes", "158454,158148,158341,158342,158343,158345,158376,158332,158533,158635,158636", "Comma-separated list of Unit Codes to extract")
-	commitmentsOnlyPtr := flag.Bool("commitmentsOnly", true, "Process only commitments")
 	logLevelPtr := flag.String("loglevel", "info", "Log level: debug, info, warn, error")
 	flag.Parse()
 
@@ -370,7 +361,7 @@ func main() {
 		return
 	}
 
-	ok, err := ProcessExtractions(ctx, extractions, codes, isManagingCode, appLogger, *commitmentsOnlyPtr, *triggerPtr, storage)
+	ok, err := ProcessExtractions(ctx, extractions, codes, isManagingCode, appLogger, *triggerPtr, storage)
 	if err != nil || !ok {
 		appLogger.Fatal(component, "Data processing failed: error=%v", err)
 		return

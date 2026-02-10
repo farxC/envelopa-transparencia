@@ -46,7 +46,8 @@ func (app *application) mount() http.Handler {
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Get("/health", app.healthCheckHandler)
-		r.Get("/expenses/table", app.handleFilterExpensesTable)
+		r.Get("/expenses/summary", app.handleGetExpensesSummary)
+		r.Get("/expenses/budget-execution/report", app.handleGetBudgetExecutionReport)
 	})
 
 	return r
