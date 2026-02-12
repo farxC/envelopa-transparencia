@@ -1,8 +1,8 @@
 package converter
 
 import (
-	"github.com/farxc/transparency_wrapper/internal/store"
-	"github.com/farxc/transparency_wrapper/internal/transparency/utils"
+	"github.com/farxc/envelopa-transparencia/internal/store"
+	"github.com/farxc/envelopa-transparencia/internal/transparency/utils"
 	"github.com/go-gota/gota/dataframe"
 )
 

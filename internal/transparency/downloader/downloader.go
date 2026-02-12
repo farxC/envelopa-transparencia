@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/farxc/transparency_wrapper/internal/logger"
+	"github.com/farxc/envelopa-transparencia/internal/logger"
 )
 
 var PortalTransparenciaURL = "https://portaldatransparencia.gov.br/download-de-dados/despesas/"

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/farxc/transparency_wrapper/internal/logger"
-	"github.com/farxc/transparency_wrapper/internal/store"
-	"github.com/farxc/transparency_wrapper/internal/transparency/types"
+	"github.com/farxc/envelopa-transparencia/internal/logger"
+	"github.com/farxc/envelopa-transparencia/internal/store"
+	"github.com/farxc/envelopa-transparencia/internal/transparency/types"
 )
 
 func LoadPayload(ctx context.Context, payload *types.CommitmentPayload, storage *store.Storage, appLogger *logger.Logger) error {

@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/farxc/transparency_wrapper/internal/logger"
-	"github.com/farxc/transparency_wrapper/internal/transparency/types"
+	"github.com/farxc/envelopa-transparencia/internal/logger"
+	"github.com/farxc/envelopa-transparencia/internal/transparency/types"
 	"github.com/go-gota/gota/dataframe"
 	"golang.org/x/text/encoding/charmap"
 )

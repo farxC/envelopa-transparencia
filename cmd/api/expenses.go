@@ -5,20 +5,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/farxc/transparency_wrapper/internal/store"
+	"github.com/farxc/envelopa-transparencia/internal/response"
+	"github.com/farxc/envelopa-transparencia/internal/store"
 )
 
-type GetExpensesSummaryResponse struct {
-	Success bool                 `json:"success"`
-	Message string               `json:"message,omitempty"`
-	Data    store.SummaryByUnits `json:"data,omitempty"`
-}
-
-type GetExpensesReportResponse struct {
-	Success bool                              `json:"success"`
-	Message string                            `json:"message,omitempty"`
-	Data    store.BudgetExecutionReportByUnit `json:"data,omitempty"`
-}
+type GetExpensesReportResponse = response.APIResponse[store.BudgetExecutionReportByUnit]
+type GetExpensesSummaryResponse = response.APIResponse[store.SummaryByUnits]
 
 func FormatCodesToString(codes []int) string {
 	codesToString := ""

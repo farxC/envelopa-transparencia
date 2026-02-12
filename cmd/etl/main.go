@@ -11,15 +11,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/farxc/transparency_wrapper/internal/db"
-	"github.com/farxc/transparency_wrapper/internal/env"
-	"github.com/farxc/transparency_wrapper/internal/logger"
-	"github.com/farxc/transparency_wrapper/internal/store"
-	"github.com/farxc/transparency_wrapper/internal/transparency"
-	"github.com/farxc/transparency_wrapper/internal/transparency/downloader"
-	"github.com/farxc/transparency_wrapper/internal/transparency/files"
-	"github.com/farxc/transparency_wrapper/internal/transparency/load"
-	"github.com/farxc/transparency_wrapper/internal/transparency/types"
+	"github.com/farxc/envelopa-transparencia/internal/db"
+	"github.com/farxc/envelopa-transparencia/internal/env"
+	"github.com/farxc/envelopa-transparencia/internal/logger"
+	"github.com/farxc/envelopa-transparencia/internal/store"
+	"github.com/farxc/envelopa-transparencia/internal/transparency"
+	"github.com/farxc/envelopa-transparencia/internal/transparency/downloader"
+	"github.com/farxc/envelopa-transparencia/internal/transparency/files"
+	"github.com/farxc/envelopa-transparencia/internal/transparency/load"
+	"github.com/farxc/envelopa-transparencia/internal/transparency/types"
 )
 
 type config struct {

@@ -3,9 +3,9 @@ package assemble
 import (
 	"sync"
 
-	"github.com/farxc/transparency_wrapper/internal/store"
-	"github.com/farxc/transparency_wrapper/internal/transparency/converter"
-	"github.com/farxc/transparency_wrapper/internal/transparency/types"
+	"github.com/farxc/envelopa-transparencia/internal/store"
+	"github.com/farxc/envelopa-transparencia/internal/transparency/converter"
+	"github.com/farxc/envelopa-transparencia/internal/transparency/types"
 	"github.com/go-gota/gota/dataframe"
 )
 

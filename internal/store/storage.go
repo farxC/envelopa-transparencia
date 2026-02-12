@@ -13,6 +13,7 @@ type Storage struct {
 		InsertCommitment(ctx context.Context, commitment *Commitment) error
 		InsertCommitmentItem(ctx context.Context, item *CommitmentItem) error
 		InsertCommitmentItemHistory(ctx context.Context, history *CommitmentItemsHistory) error
+		GetCommitmentInformation(ctx context.Context, filter GetCommitmentInformationFilter) ([]CommitmentInformation, error)
 	}
 
 	Liquidation interface {

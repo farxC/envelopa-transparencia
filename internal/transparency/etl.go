@@ -5,11 +5,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/farxc/transparency_wrapper/internal/logger"
-	"github.com/farxc/transparency_wrapper/internal/transparency/assemble"
-	"github.com/farxc/transparency_wrapper/internal/transparency/files"
-	"github.com/farxc/transparency_wrapper/internal/transparency/query"
-	"github.com/farxc/transparency_wrapper/internal/transparency/types"
+	"github.com/farxc/envelopa-transparencia/internal/logger"
+	"github.com/farxc/envelopa-transparencia/internal/transparency/assemble"
+	"github.com/farxc/envelopa-transparencia/internal/transparency/files"
+	"github.com/farxc/envelopa-transparencia/internal/transparency/query"
+	"github.com/farxc/envelopa-transparencia/internal/transparency/types"
 	"github.com/go-gota/gota/dataframe"
 )
 

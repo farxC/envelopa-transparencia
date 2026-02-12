@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/farxc/transparency_wrapper/internal/store"
+	"github.com/farxc/envelopa-transparencia/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -46,8 +46,13 @@ func (app *application) mount() http.Handler {
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Get("/health", app.healthCheckHandler)
-		r.Get("/expenses/summary", app.handleGetExpensesSummary)
-		r.Get("/expenses/budget-execution/report", app.handleGetBudgetExecutionReport)
+		r.Route("/expenses", func(r chi.Router) {
+			r.Get("/summary", app.handleGetExpensesSummary)
+			r.Get("/budget-execution/report", app.handleGetBudgetExecutionReport)
+		})
+		r.Route("/commitments", func(r chi.Router) {
+			r.Get("/", app.handleGetCommitmentsInformation)
+		})
 	})
 
 	return r

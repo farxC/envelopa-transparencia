@@ -3,9 +3,9 @@ package main
 import (
 	"log"
 
-	"github.com/farxc/transparency_wrapper/internal/db"
-	"github.com/farxc/transparency_wrapper/internal/env"
-	"github.com/farxc/transparency_wrapper/internal/store"
+	"github.com/farxc/envelopa-transparencia/internal/db"
+	"github.com/farxc/envelopa-transparencia/internal/env"
+	"github.com/farxc/envelopa-transparencia/internal/store"
 )
 
 func main() {

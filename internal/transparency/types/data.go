@@ -1,7 +1,7 @@
 package types
 
 import (
-	"github.com/farxc/transparency_wrapper/internal/store"
+	"github.com/farxc/envelopa-transparencia/internal/store"
 	"github.com/go-gota/gota/dataframe"
 )
 

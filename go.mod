@@ -1,4 +1,4 @@
-module github.com/farxc/transparency_wrapper
+module github.com/farxc/envelopa-transparencia
 
 go 1.24.0
 
