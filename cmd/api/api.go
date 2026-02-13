@@ -48,10 +48,18 @@ func (app *application) mount() http.Handler {
 		r.Get("/health", app.healthCheckHandler)
 		r.Route("/expenses", func(r chi.Router) {
 			r.Get("/summary", app.handleGetExpensesSummary)
+			r.Get("/summary/global", app.handleGetGlobalExpensesSummary)
 			r.Get("/budget-execution/report", app.handleGetBudgetExecutionReport)
+			r.Get("/top-favored", app.handleGetTopFavored)
+			r.Get("/by-category", app.handleGetExpensesByCategory)
 		})
 		r.Route("/commitments", func(r chi.Router) {
 			r.Get("/", app.handleGetCommitmentsInformation)
+		})
+		r.Route("/ingestion", func(r chi.Router) {
+			r.Get("/history", app.handleGetIngestionHistory)
+			r.Post("/", app.handleCreateIngestion)
+			r.Patch("/{id}/status", app.handleUpdateIngestionStatus)
 		})
 	})
 

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	"github.com/jmoiron/sqlx"
@@ -22,9 +23,10 @@ var (
 )
 
 var (
-	StatusSuccess = "SUCCESS"
-	StatusFailure = "FAILURE"
-	StatusPartial = "PARTIAL"
+	StatusSuccess    = "SUCCESS"
+	StatusFailure    = "FAILURE"
+	StatusPartial    = "PARTIAL"
+	StatusInProgress = "IN_PROGRESS"
 )
 
 func (ih *IngestionHistoryStore) InsertIngestionHistory(ctx context.Context, history *IngestionHistory) error {
@@ -61,5 +63,29 @@ func (ih *IngestionHistoryStore) InsertIngestionHistory(ctx context.Context, his
 	}
 
 	log.Printf("Ingestion history recorded with ID: %d", history.ID)
+	return nil
+}
+
+func (ih *IngestionHistoryStore) GetLatest(ctx context.Context, limit int) ([]IngestionHistory, error) {
+	query := `
+		SELECT id, processed_at, reference_date, source_file, trigger_type, scope_type, status, processed_codes
+		FROM ingestion_history
+		ORDER BY processed_at DESC
+		LIMIT $1
+	`
+	var history []IngestionHistory
+	err := ih.db.SelectContext(ctx, &history, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest ingestion history: %w", err)
+	}
+	return history, nil
+}
+
+func (ih *IngestionHistoryStore) UpdateIngestionStatus(ctx context.Context, id int64, status string) error {
+	query := `UPDATE ingestion_history SET status = $1 WHERE id = $2`
+	_, err := ih.db.ExecContext(ctx, query, status, id)
+	if err != nil {
+		return fmt.Errorf("failed to update ingestion status: %w", err)
+	}
 	return nil
 }

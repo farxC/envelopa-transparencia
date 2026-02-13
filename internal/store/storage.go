@@ -28,11 +28,16 @@ type Storage struct {
 
 	IngestionHistory interface {
 		InsertIngestionHistory(ctx context.Context, history *IngestionHistory) error
+		GetLatest(ctx context.Context, limit int) ([]IngestionHistory, error)
+		UpdateIngestionStatus(ctx context.Context, id int64, status string) error
 	}
 
 	Expenses interface {
 		GetBudgetExecutionReport(ctx context.Context, e ExpensesFilter) (BudgetExecutionReportByUnit, error)
 		GetBudgetExecutionSummary(ctx context.Context, e ExpensesFilter) (SummaryByUnits, error)
+		GetGlobalBudgetExecutionSummary(ctx context.Context, e ExpensesFilter) (GlobalSummary, error)
+		GetTopFavored(ctx context.Context, e ExpensesFilter, limit int) ([]TopFavored, error)
+		GetExpensesByCategory(ctx context.Context, e ExpensesFilter) ([]ExpensesByCategory, error)
 	}
 }
 
