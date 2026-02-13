@@ -84,7 +84,7 @@ func ExtractData(extraction types.OutputExtractionFiles, codes []string, isManag
 
 	if !hasAnyData {
 		appLogger.Warn(component, "No matching data found: date=%s", extractionDate)
-		return nil, fmt.Errorf("no matching data found for extraction date %s", extractionDate)
+		return nil, fmt.Errorf("no matching data found for extraction date %s", extractionDate.Format("2006-01-02"))
 	}
 
 	// Extract impacted commitments for liquidations

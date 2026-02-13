@@ -54,7 +54,6 @@ CREATE TABLE IF NOT EXISTS commitment_items (
     expense_element VARCHAR(255),
     sub_expense_element VARCHAR(255),
     sub_expense_element_code SMALLINT,
-    observation TEXT,
     description TEXT,
     quantity NUMERIC(18, 4) DEFAULT 0,
     sequential SMALLINT,

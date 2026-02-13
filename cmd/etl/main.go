@@ -16,10 +16,6 @@ import (
 	"github.com/farxc/envelopa-transparencia/internal/logger"
 	"github.com/farxc/envelopa-transparencia/internal/store"
 	"github.com/farxc/envelopa-transparencia/internal/transparency"
-	"github.com/farxc/envelopa-transparencia/internal/transparency/downloader"
-	"github.com/farxc/envelopa-transparencia/internal/transparency/files"
-	"github.com/farxc/envelopa-transparencia/internal/transparency/load"
-	"github.com/farxc/envelopa-transparencia/internal/transparency/types"
 )
 
 type config struct {
@@ -121,144 +117,6 @@ func createTmpDirs(appLogger *logger.Logger) error {
 	return nil
 }
 
-func clearTmpData(appLogger *logger.Logger) {
-	const component = "TempCleanerData"
-	err := os.RemoveAll("tmp/data")
-	if err != nil {
-		appLogger.Warn(component, "Failed to clear temp dir: dir=%s error=%v", "tmp/data", err)
-	} else {
-		appLogger.Info(component, "Temp dir cleared: dir=%s", "tmp/data")
-	}
-
-}
-
-func isFileAlreadyDownloaded(date string) (exists bool, expectedPath string) {
-	filePath := fmt.Sprintf("tmp/zips/despesas_%s.zip", date)
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		return false, filePath
-	}
-	return true, filePath
-}
-
-func DonwloadData(init_parsed_date, end_parsed_date time.Time, appLogger *logger.Logger) ([]types.OutputExtractionFiles, error) {
-	var extractions []types.OutputExtractionFiles
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	component := "Downloader"
-	var url string
-
-	appLogger.Info(component, "Starting download phase")
-	downloadCount := 0
-	for !init_parsed_date.After(end_parsed_date) {
-		date := init_parsed_date.Format("20060102")
-		url = downloader.PortalTransparenciaURL + date
-		wg.Add(1)
-		downloadCount++
-		go func(u, d string) {
-			defer wg.Done()
-			var path string
-			var extraction files.ExtractionResult
-			exists, path := isFileAlreadyDownloaded(d)
-
-			if !exists {
-				download := downloader.FetchData(u, d, appLogger)
-				if !download.Success {
-					appLogger.Warn(component, "Download failed: date=%s", d)
-					return
-				}
-				path = download.OutputPath
-			}
-
-			extraction = files.UnzipFile(path, "tmp/data/despesas_"+d, appLogger)
-
-			if !extraction.Success {
-				appLogger.Warn(component, "Extraction failed: date=%s", d)
-				return
-			}
-
-			extractedFiles := files.BuildFilesForDate(d, extraction.OutputDir)
-
-			mu.Lock()
-			extractions = append(extractions, types.OutputExtractionFiles{Date: d, Files: extractedFiles})
-			mu.Unlock()
-			appLogger.Info(component, "Day extraction ready: date=%s outputDir=%s", date, extraction.OutputDir)
-		}(url, date)
-		init_parsed_date = init_parsed_date.AddDate(0, 0, 1)
-	}
-
-	appLogger.Info(component, "Waiting for downloads to complete: totalDays=%d", downloadCount)
-	wg.Wait()
-
-	return extractions, nil
-}
-
-func ProcessExtractions(ctx context.Context, extractions []types.OutputExtractionFiles, codes []string, isManagingCode bool, appLogger *logger.Logger, trigger string, storage *store.Storage) (bool, error) {
-	const component = "DataProcessor"
-	MAX_CONCURRENT_EXTRACTIONS_DATA := 1
-	extractions_semaphore := make(chan struct{}, MAX_CONCURRENT_EXTRACTIONS_DATA)
-	var wg sync.WaitGroup
-	appLogger.Info(component, "Starting data processing phase: extractionsReady=%d maxConcurrent=%d", len(extractions), MAX_CONCURRENT_EXTRACTIONS_DATA)
-
-	for _, extraction := range extractions {
-		wg.Add(1)
-		go func(ctx context.Context, ex types.OutputExtractionFiles) {
-			defer wg.Done()
-			extractions_semaphore <- struct{}{}
-			defer func() { <-extractions_semaphore }()
-
-			appLogger.Debug(component, "Processing extraction: date=%s", ex.Date)
-			var payload *types.CommitmentPayload
-			var err error
-
-			//Memory intensive
-
-			payload, err = transparency.ExtractData(ex, codes, isManagingCode, appLogger)
-
-			if err != nil {
-				appLogger.Warn(component, "Data extraction skipped: date=%s reason=%v", ex.Date, err)
-				return
-			}
-
-			err = load.LoadPayload(ctx, payload, storage, appLogger)
-			parsedExtractionDate, err := time.Parse("20060102", extraction.Date)
-			if err != nil {
-				appLogger.Error(component, "Failed to parse extraction date for ingestion history: date=%s error=%v", extraction.Date, err)
-			}
-			now := time.Now()
-
-			var scope string
-			if isManagingCode {
-				scope = store.ScopeTypeManagement
-			} else {
-				scope = store.ScopeTypeManagingUnit
-			}
-
-			codesArr := []int64{}
-			for _, c := range codes {
-				var codeInt int64
-				fmt.Sscanf(c, "%d", &codeInt)
-				codesArr = append(codesArr, codeInt)
-			}
-
-			history := &store.IngestionHistory{
-				ReferenceDate:  parsedExtractionDate,
-				ProcessedAt:    now,
-				TriggerType:    trigger,
-				ScopeType:      scope,
-				Status:         store.StatusSuccess, // TODO: IMPROVE STATUS BASED ON ERRORS INSIDE GOROUTINES. MAYBE CREATE A CHANNEL TO COLLECT ERRORS AND ANOTHER TABLE TO STORE DETAILED ERRORS
-				SourceFile:     fmt.Sprintf("despesas_%s.zip", extraction.Date),
-				ProcessedCodes: codesArr,
-			}
-			err = storage.IngestionHistory.InsertIngestionHistory(ctx, history)
-			if err != nil {
-				appLogger.Error(component, "Failed to insert ingestion history: date=%s error=%v", extraction.Date, err)
-			}
-		}(ctx, extraction)
-	}
-	wg.Wait()
-	return true, nil
-}
-
 func main() {
 	const component = "Main"
 	monitor := NewMonitor()
@@ -304,6 +162,7 @@ func main() {
 	triggerPtr := flag.String("trigger", "MANUAL", "Trigger source: MANUAL, SCHEDULED")
 	codesPtr := flag.String("codes", "158454,158148,158341,158342,158343,158345,158376,158332,158533,158635,158636", "Comma-separated list of Unit Codes to extract")
 	logLevelPtr := flag.String("loglevel", "info", "Log level: debug, info, warn, error")
+	concurrencyPtr := flag.Int("concurrency", 10, "Number of concurrent workers")
 	flag.Parse()
 
 	// Set log level based on flag
@@ -325,50 +184,72 @@ func main() {
 	codes := strings.Split(*codesPtr, ",")
 	isManagingCode := *byManagingCodePtr
 
+	codesArr := []int64{}
+	for _, c := range codes {
+		var codeInt int64
+		fmt.Sscanf(c, "%d", &codeInt)
+		codesArr = append(codesArr, codeInt)
+	}
+
 	appLogger.Info(component, "Application started: initDate=%s endDate=%s codesCount=%d logLevel=%s", init_date, end_date, len(codes), *logLevelPtr)
 
 	// Create necessary directories
 	err = createTmpDirs(appLogger)
-
 	if err != nil {
 		appLogger.Fatal(component, "Failed to create temporary directories: error=%v", err)
 		return
 	}
 
 	init_parsed_date, err := time.Parse(time.DateOnly, init_date)
-
 	if err != nil {
 		appLogger.Fatal(component, "Invalid init date format: date=%s error=%v", init_date, err)
 		return
 	}
 	end_parsed_date, err := time.Parse(time.DateOnly, end_date)
-
 	if err != nil {
 		appLogger.Fatal(component, "Invalid end date format: date=%s error=%v", end_date, err)
 		return
 	}
 
 	err = createDirIfNotExist("output")
-
 	if err != nil {
 		appLogger.Fatal(component, "Failed to create output directory: error=%v", err)
 		return
 	}
 
-	extractions, err := DonwloadData(init_parsed_date, end_parsed_date, appLogger)
+	// Initialize Orchestrator
+	orchestrator := transparency.NewOrchestrator(storage, appLogger, *concurrencyPtr)
+
+	// 1. Sync state
+	err = orchestrator.InitializeState(ctx, init_parsed_date, end_parsed_date, codesArr)
 	if err != nil {
-		appLogger.Fatal(component, "Data download failed: error=%v", err)
+		appLogger.Fatal(component, "Failed to initialize orchestrator state: error=%v", err)
 		return
 	}
 
-	ok, err := ProcessExtractions(ctx, extractions, codes, isManagingCode, appLogger, *triggerPtr, storage)
-	if err != nil || !ok {
-		appLogger.Fatal(component, "Data processing failed: error=%v", err)
-		return
+	// 2. Start workers
+	orchestrator.Start(ctx)
+
+	// 3. Queue jobs
+	currentDate := init_parsed_date
+	for !currentDate.After(end_parsed_date) {
+		if orchestrator.ShouldProcess(currentDate) {
+			orchestrator.AddJob(transparency.IngestionJob{
+				Date:           currentDate,
+				Codes:          codesArr,
+				IsManagingCode: isManagingCode,
+				Trigger:        *triggerPtr,
+			})
+		} else {
+			appLogger.Info(component, "Skipping date (already processed or active): date=%s", currentDate.Format(time.DateOnly))
+		}
+		currentDate = currentDate.AddDate(0, 0, 1)
 	}
 
-	// clearTempDirs(appLogger)
+	// 4. Wait for completion
+	orchestrator.Close()
+	orchestrator.Wait()
 
 	timeTaken := time.Since(starting_time)
-	appLogger.Info(component, "Application completed successfully: duration=%.2f seconds", timeTaken.Seconds())
+	appLogger.Info(component, "Application completed successfully: duration=%.2f minutes", timeTaken.Minutes())
 }

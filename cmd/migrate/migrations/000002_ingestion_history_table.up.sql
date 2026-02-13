@@ -14,8 +14,8 @@ CREATE TABLE ingestion_history (
 
     scope_type VARCHAR(50) CHECK (scope_type IN ('MANAGEMENT_UNIT', 'MANAGEMENT')) NOT NULL,
     
-    -- Status geral do lote ('SUCCESS', 'PARTIAL', 'FAILED')
-    status VARCHAR(20) CHECK (status IN ('SUCCESS', 'PARTIAL', 'FAILED')) NOT NULL,
+    -- Status geral do lote ('SUCCESS', 'PARTIAL', 'FAILURE', 'IN_PROGRESS', 'SKIPPED')
+    status VARCHAR(20) CHECK (status IN ('SUCCESS', 'PARTIAL', 'FAILURE', 'IN_PROGRESS', 'SKIPPED')) NOT NULL,
     
     -- O ARRAY MÁGICO (contendo os IDs das UGs que foram processadas com sucesso)
     -- Ex: {154032, 158123, ...}

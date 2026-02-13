@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 )
 
 type IngestionHistoryStore struct {
@@ -27,6 +29,7 @@ var (
 	StatusFailure    = "FAILURE"
 	StatusPartial    = "PARTIAL"
 	StatusInProgress = "IN_PROGRESS"
+	StatusSkipped    = "SKIPPED"
 )
 
 func (ih *IngestionHistoryStore) InsertIngestionHistory(ctx context.Context, history *IngestionHistory) error {
@@ -88,4 +91,20 @@ func (ih *IngestionHistoryStore) UpdateIngestionStatus(ctx context.Context, id i
 		return fmt.Errorf("failed to update ingestion status: %w", err)
 	}
 	return nil
+}
+
+func (ih *IngestionHistoryStore) GetHistoryInRange(ctx context.Context, startDate, endDate time.Time, codes []int64) ([]IngestionHistory, error) {
+	query := `
+		SELECT id, processed_at, reference_date, source_file, trigger_type, scope_type, status, processed_codes
+		FROM ingestion_history
+		WHERE reference_date BETWEEN $1 AND $2
+		AND processed_codes && $3
+		ORDER BY reference_date ASC, processed_at DESC
+	`
+	var history []IngestionHistory
+	err := ih.db.SelectContext(ctx, &history, query, startDate, endDate, pq.Array(codes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ingestion history in range: %w", err)
+	}
+	return history, nil
 }

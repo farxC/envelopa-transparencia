@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -30,6 +31,7 @@ type Storage struct {
 		InsertIngestionHistory(ctx context.Context, history *IngestionHistory) error
 		GetLatest(ctx context.Context, limit int) ([]IngestionHistory, error)
 		UpdateIngestionStatus(ctx context.Context, id int64, status string) error
+		GetHistoryInRange(ctx context.Context, startDate, endDate time.Time, codes []int64) ([]IngestionHistory, error)
 	}
 
 	Expenses interface {
