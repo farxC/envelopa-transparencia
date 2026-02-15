@@ -11,6 +11,14 @@ import (
 type GetIngestionHistoryResponse = response.APIResponse[[]store.IngestionHistory]
 type CreateIngestionResponse = response.APIResponse[*store.IngestionHistory]
 
+// @Summary		Get ingestion history
+// @Description	Get a list of the latest ingestion records.
+// @Tags			Ingestion
+// @Produce		json
+// @Param			limit	query		int							false	"Limit the number of results"	default(10)
+// @Success		200		{object}	GetIngestionHistoryResponse	"Successfully retrieved latest ingestion records"
+// @Failure		500		{object}	response.ErrorResponse		"Failed to get ingestion history"
+// @Router			/ingestion/history [get]
 func (app *application) handleGetIngestionHistory(w http.ResponseWriter, r *http.Request) {
 	limitParam := r.URL.Query().Get("limit")
 	limit := 10
@@ -38,6 +46,16 @@ func (app *application) handleGetIngestionHistory(w http.ResponseWriter, r *http
 	}
 }
 
+// @Summary		Create ingestion record
+// @Description	Creates a new ingestion record with IN_PROGRESS status.
+// @Tags			Ingestion
+// @Accept			json
+// @Produce		json
+// @Param			ingestion	body		object{reference_date:string,source_file:string,trigger_type:string,scope_type:string,processed_codes:[]int64}	true	"Ingestion record details"
+// @Success		201			{object}	CreateIngestionResponse																							"Ingestion record initialized"
+// @Failure		400			{object}	response.ErrorResponse																							"Invalid request payload or missing fields"
+// @Failure		500			{object}	response.ErrorResponse																							"Failed to create ingestion record"
+// @Router			/ingestion [post]
 func (app *application) handleCreateIngestion(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		ReferenceDate  string  `json:"reference_date"`
@@ -87,40 +105,6 @@ func (app *application) handleCreateIngestion(w http.ResponseWriter, r *http.Req
 	}
 
 	if err := writeJSON(w, http.StatusCreated, response); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "failed to write response")
-	}
-}
-
-func (app *application) handleUpdateIngestionStatus(w http.ResponseWriter, r *http.Request) {
-	idParam := r.URL.Query().Get("id")
-	id, err := strconv.ParseInt(idParam, 10, 64)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid record id")
-		return
-	}
-
-	var input struct {
-		Status string `json:"status"`
-	}
-
-	if err := readJSON(w, r, &input); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid request payload")
-		return
-	}
-
-	// Validate status
-	if input.Status != store.StatusSuccess && input.Status != store.StatusFailure && input.Status != store.StatusPartial {
-		writeJSONError(w, http.StatusBadRequest, "invalid status value")
-		return
-	}
-
-	ctx := r.Context()
-	if err := app.store.IngestionHistory.UpdateIngestionStatus(ctx, id, input.Status); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "failed to update ingestion status: "+err.Error())
-		return
-	}
-
-	if err := writeJSON(w, http.StatusOK, map[string]string{"message": "status updated successfully"}); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to write response")
 	}
 }

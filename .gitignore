@@ -5,6 +5,7 @@ bin/
 .vscode
 .gemini
 .specify
+docs/
 
 ARCHITECTURE_DESIGN.md
 SYSTEM_DESIGN.md

@@ -5,3 +5,7 @@ type APIResponse[T any] struct {
 	Message string `json:"message,omitempty"`
 	Data    T      `json:"data,omitempty"`
 }
+
+type ErrorResponse struct {
+	Error string `json:"error"`
+}

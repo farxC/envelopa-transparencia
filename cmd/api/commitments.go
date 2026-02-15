@@ -11,6 +11,18 @@ import (
 
 type GetCommitmentsInformationResponse = response.APIResponse[[]store.CommitmentInformation]
 
+// @Summary		Get commitments information
+// @Description	Get commitments information by applying various filters.
+// @Tags			Commitments
+// @Produce		json
+// @Param			start_date				query		string								false	"Start date for filtering (YYYY-MM-DD)"
+// @Param			end_date				query		string								false	"End date for filtering (YYYY-MM-DD)"
+// @Param			management_code			query		string								false	"Management code for filtering"
+// @Param			management_unit_codes	query		string								false	"Comma-separated list of management unit codes for filtering"
+// @Param			commitment_codes		query		string								false	"Comma-separated list of commitment codes for filtering"
+// @Success		200						{object}	GetCommitmentsInformationResponse	"Successfully retrieved commitment information"
+// @Failure		500						{object}	response.ErrorResponse				"Failed to filter commitments table"
+// @Router			/commitments [get]
 func (app *application) handleGetCommitmentsInformation(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	startParam := r.URL.Query().Get("start_date")

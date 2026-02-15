@@ -14,7 +14,7 @@ type IngestionHistory struct {
 	TriggerType    string        `db:"trigger_type"`
 	ScopeType      string        `db:"scope_type"`
 	Status         string        `db:"status"`
-	ProcessedCodes pq.Int64Array `db:"processed_codes"`
+	ProcessedCodes pq.Int64Array `db:"processed_codes" swaggertype:"array,integer"`
 }
 
 type Payment struct {

@@ -1,13 +1,16 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"time"
 
+	"github.com/farxc/envelopa-transparencia/docs"
 	"github.com/farxc/envelopa-transparencia/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	httpSwagger "github.com/swaggo/http-swagger"
 )
 
 type application struct {
@@ -16,8 +19,9 @@ type application struct {
 }
 
 type config struct {
-	addr string
-	db   dbConfig
+	addr   string
+	apiUrl string
+	db     dbConfig
 }
 
 type dbConfig struct {
@@ -46,6 +50,12 @@ func (app *application) mount() http.Handler {
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Get("/health", app.healthCheckHandler)
+
+		docsURL := fmt.Sprintf("%s/docs/doc.json", app.config.addr)
+		r.Get("/docs/*", httpSwagger.Handler(
+			httpSwagger.URL(docsURL),
+		))
+
 		r.Route("/expenses", func(r chi.Router) {
 			r.Get("/summary", app.handleGetExpensesSummary)
 			r.Get("/summary/global", app.handleGetGlobalExpensesSummary)
@@ -59,7 +69,6 @@ func (app *application) mount() http.Handler {
 		r.Route("/ingestion", func(r chi.Router) {
 			r.Get("/history", app.handleGetIngestionHistory)
 			r.Post("/", app.handleCreateIngestion)
-			r.Patch("/{id}/status", app.handleUpdateIngestionStatus)
 		})
 	})
 
@@ -67,6 +76,11 @@ func (app *application) mount() http.Handler {
 }
 
 func (app *application) run(mux http.Handler) error {
+	version := "1.0.0"
+	// Docs
+	docs.SwaggerInfo.Version = version
+	docs.SwaggerInfo.Host = app.config.apiUrl
+	docs.SwaggerInfo.BasePath = "/v1"
 
 	srv := &http.Server{
 		Addr:         app.config.addr,

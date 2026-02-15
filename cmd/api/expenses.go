@@ -58,6 +58,17 @@ func parseExpensesFilter(r *http.Request) (store.ExpensesFilter, error) {
 	return filter, nil
 }
 
+// @Summary		Get expenses summary
+// @Description	Get a summary of expenses by applying various filters.
+// @Tags			Expenses
+// @Produce		json
+// @Param			start_date	query		string						false	"Start date for filtering (YYYY-MM-DD)"
+// @Param			end_date	query		string						false	"End date for filtering (YYYY-MM-DD)"
+// @Param			codes		query		string						false	"Comma-separated list of codes for filtering"
+// @Success		200			{object}	GetExpensesSummaryResponse	"Successfully retrieved expenses summary"
+// @Failure		400			{object}	response.ErrorResponse		"Invalid request payload"
+// @Failure		500			{object}	response.ErrorResponse		"Failed to filter expenses table"
+// @Router			/expenses/summary [get]
 func (app *application) handleGetExpensesSummary(w http.ResponseWriter, r *http.Request) {
 	filter, err := parseExpensesFilter(r)
 	if err != nil {
@@ -83,6 +94,17 @@ func (app *application) handleGetExpensesSummary(w http.ResponseWriter, r *http.
 	}
 }
 
+// @Summary		Get global expenses summary
+// @Description	Get a global summary of expenses by applying various filters.
+// @Tags			Expenses
+// @Produce		json
+// @Param			start_date	query		string						false	"Start date for filtering (YYYY-MM-DD)"
+// @Param			end_date	query		string						false	"End date for filtering (YYYY-MM-DD)"
+// @Param			codes		query		string						false	"Comma-separated list of codes for filtering"
+// @Success		200			{object}	GetGlobalSummaryResponse	"Successfully retrieved global expenses summary"
+// @Failure		400			{object}	response.ErrorResponse		"Invalid request payload"
+// @Failure		500			{object}	response.ErrorResponse		"Failed to get global expenses summary"
+// @Router			/expenses/global-summary [get]
 func (app *application) handleGetGlobalExpensesSummary(w http.ResponseWriter, r *http.Request) {
 	filter, err := parseExpensesFilter(r)
 	if err != nil {
@@ -108,6 +130,17 @@ func (app *application) handleGetGlobalExpensesSummary(w http.ResponseWriter, r 
 	}
 }
 
+// @Summary		Get budget execution report
+// @Description	Get a budget execution report by applying various filters.
+// @Tags			Expenses
+// @Produce		json
+// @Param			start_date	query		string						false	"Start date for filtering (YYYY-MM-DD)"
+// @Param			end_date	query		string						false	"End date for filtering (YYYY-MM-DD)"
+// @Param			codes		query		string						false	"Comma-separated list of codes for filtering"
+// @Success		200			{object}	GetExpensesReportResponse	"Successfully retrieved budget execution report"
+// @Failure		400			{object}	response.ErrorResponse		"Invalid request payload"
+// @Failure		500			{object}	response.ErrorResponse		"Failed to get budget execution report"
+// @Router			/expenses/report [get]
 func (app *application) handleGetBudgetExecutionReport(w http.ResponseWriter, r *http.Request) {
 	filter, err := parseExpensesFilter(r)
 	if err != nil {
@@ -133,6 +166,18 @@ func (app *application) handleGetBudgetExecutionReport(w http.ResponseWriter, r 
 	}
 }
 
+// @Summary		Get top favored entities
+// @Description	Get a list of top favored entities by applying various filters.
+// @Tags			Expenses
+// @Produce		json
+// @Param			start_date	query		string					false	"Start date for filtering (YYYY-MM-DD)"
+// @Param			end_date	query		string					false	"End date for filtering (YYYY-MM-DD)"
+// @Param			codes		query		string					false	"Comma-separated list of codes for filtering"
+// @Param			limit		query		int						false	"Limit the number of results"	default(10)
+// @Success		200			{object}	GetTopFavoredResponse	"Successfully retrieved top favored entities"
+// @Failure		400			{object}	response.ErrorResponse	"Invalid request payload"
+// @Failure		500			{object}	response.ErrorResponse	"Failed to get top favored"
+// @Router			/expenses/top-favored [get]
 func (app *application) handleGetTopFavored(w http.ResponseWriter, r *http.Request) {
 	filter, err := parseExpensesFilter(r)
 	if err != nil {
@@ -166,6 +211,17 @@ func (app *application) handleGetTopFavored(w http.ResponseWriter, r *http.Reque
 	}
 }
 
+// @Summary		Get expenses by category
+// @Description	Get a list of expenses by category by applying various filters.
+// @Tags			Expenses
+// @Produce		json
+// @Param			start_date	query		string							false	"Start date for filtering (YYYY-MM-DD)"
+// @Param			end_date	query		string							false	"End date for filtering (YYYY-MM-DD)"
+// @Param			codes		query		string							false	"Comma-separated list of codes for filtering"
+// @Success		200			{object}	GetExpensesByCategoryResponse	"Successfully retrieved expenses by category"
+// @Failure		400			{object}	response.ErrorResponse			"Invalid request payload"
+// @Failure		500			{object}	response.ErrorResponse			"Failed to get expenses by category"
+// @Router			/expenses/by-category [get]
 func (app *application) handleGetExpensesByCategory(w http.ResponseWriter, r *http.Request) {
 	filter, err := parseExpensesFilter(r)
 	if err != nil {

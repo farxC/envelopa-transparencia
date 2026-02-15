@@ -8,6 +8,23 @@ import (
 	"github.com/farxc/envelopa-transparencia/internal/store"
 )
 
+//	@title			Envelopa Transparência
+//	@termsOfService	http://swagger.io/terms/
+
+//	@contact.name	API Support
+//	@contact.url	http://www.swagger.io/support
+//	@contact.email	support@swagger.io
+
+//	@license.name	Apache 2.0
+//	@license.url	http://www.apache.org/licenses/LICENSE-2.0.html
+
+//	@BasePath	/v1
+//
+// securityDefinitions.apiKey ApiKeyAuth
+//
+//	@in			header
+//	@name		Authorization
+//	@description
 func main() {
 	cfg := config{
 		addr: env.GetString("ADDR", ":8080"),
@@ -17,6 +34,7 @@ func main() {
 			maxIdleConns: env.GetInt("DB_MAX_IDLE_CONNS", 25),
 			maxIdleTime:  env.GetString("DB_MAX_IDLE_TIME", "15m"),
 		},
+		apiUrl: env.GetString("API_URL", "localhost:8080"),
 	}
 
 	db, err := db.New(
