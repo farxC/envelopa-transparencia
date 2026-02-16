@@ -3,12 +3,10 @@ package store
 import (
 	"context"
 	"log"
-
-	"github.com/jmoiron/sqlx"
 )
 
 type LiquidationStore struct {
-	db *sqlx.DB
+	db Queryer
 }
 
 func (ls *LiquidationStore) InsertLiquidation(ctx context.Context, liquidation *Liquidation) error {

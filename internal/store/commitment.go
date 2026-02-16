@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 )
 
 type CommitmentStore struct {
-	db *sqlx.DB
+	db Queryer
 }
 
 type GetCommitmentInformationFilter struct {

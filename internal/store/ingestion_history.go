@@ -6,12 +6,11 @@ import (
 	"log"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 )
 
 type IngestionHistoryStore struct {
-	db *sqlx.DB
+	db Queryer
 }
 
 var (

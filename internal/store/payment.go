@@ -3,12 +3,10 @@ package store
 import (
 	"context"
 	"log"
-
-	"github.com/jmoiron/sqlx"
 )
 
 type PaymentStore struct {
-	db *sqlx.DB
+	db Queryer
 }
 
 func (ps *PaymentStore) InsertPayment(ctx context.Context, payment *Payment) error {

@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 )
 
 type ExpensesStore struct {
-	db *sqlx.DB
+	db Queryer
 }
 
 type ScopeType string
