@@ -10,7 +10,7 @@ import (
 )
 
 type IngestionHistoryStore struct {
-	db Queryer
+	db GenericQueryer
 }
 
 var (

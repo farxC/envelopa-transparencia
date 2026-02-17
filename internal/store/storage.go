@@ -36,15 +36,14 @@ type Storage struct {
 	Expenses interface {
 		GetBudgetExecutionReport(ctx context.Context, e ExpensesFilter) (BudgetExecutionReportByUnit, error)
 		GetBudgetExecutionSummary(ctx context.Context, e ExpensesFilter) (SummaryByUnits, error)
-		GetGlobalBudgetExecutionSummary(ctx context.Context, e ExpensesFilter) (GlobalSummary, error)
+		GetBudgetExecutionSummaryByManagement(ctx context.Context, e ExpensesFilter) (GlobalSummary, error)
 		GetTopFavored(ctx context.Context, e ExpensesFilter, limit int) ([]TopFavored, error)
-		GetExpensesByCategory(ctx context.Context, e ExpensesFilter) ([]ExpensesByCategory, error)
 	}
 	DB *sqlx.DB
 }
 
 // Defines an generic interface for group both *sqlx.Tx and *sqlx.Db
-type Queryer interface {
+type GenericQueryer interface {
 	NamedExec(query string, arg interface{}) (sql.Result, error)
 	SelectContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error
 	GetContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error
@@ -72,5 +71,4 @@ func NewStorage(db *sqlx.DB) *Storage {
 		Expenses:         &ExpensesStore{db: db},
 		DB:               db,
 	}
-
 }

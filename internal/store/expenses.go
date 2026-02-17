@@ -9,7 +9,7 @@ import (
 )
 
 type ExpensesStore struct {
-	db Queryer
+	db GenericQueryer
 }
 
 type ScopeType string
@@ -34,12 +34,12 @@ type SummaryByUnits struct {
 }
 
 type GlobalSummary struct {
-	CommittedAmount       float64 `json:"committed_amount"`
-	LiquidatedAmount      float64 `json:"liquidated_amount"`
-	PaidAmount            float64 `json:"paid_amount"`
-	BalanceToLiquidate    float64 `json:"balance_to_liquidate"`
-	BalanceToPayProcessed float64 `json:"balance_to_pay_processed"`
-	ExecutionPercentage   float64 `json:"execution_percentage"`
+	CommittedAmount       float64 `json:"committed_amount" db:"committed_amount"`
+	LiquidatedAmount      float64 `json:"liquidated_amount" db:"liquidated_amount"`
+	PaidAmount            float64 `json:"paid_amount" db:"paid_amount"`
+	BalanceToLiquidate    float64 `json:"balance_to_liquidate" db:"balance_to_liquidate"`
+	BalanceToPayProcessed float64 `json:"balance_to_pay_processed" db:"balance_to_pay_processed"`
+	ExecutionPercentage   float64 `json:"execution_percentage" db:"execution_percentage"`
 }
 
 type TopFavored struct {
@@ -67,10 +67,10 @@ type BudgetExecutionReport struct {
 type BudgetExecutionReportByUnit map[string][]BudgetExecutionReport
 
 type ExpensesFilter struct {
-	StartDate      time.Time
-	EndDate        time.Time
-	Codes          []string
-	ManagementCode string
+	ManagementCode      int
+	ManagementUnitCodes []int
+	StartDate           time.Time
+	EndDate             time.Time
 }
 
 /*
@@ -78,8 +78,25 @@ This store is responsible for querying the database to generate the expenses sum
 The GetBudgetExecutionReport method retrieves detailed information about expenses by nature for each management unit, while the GetBudgetExecutionSummary method provides a consolidated view of committed, liquidated, and paid amounts, along with execution percentages.
 */
 func (es *ExpensesStore) GetBudgetExecutionReport(ctx context.Context, e ExpensesFilter) (BudgetExecutionReportByUnit, error) {
+	whereClause := "WHERE c.management_code = $1"
+	args := []interface{}{e.ManagementCode}
+	argIndex := 2
 
-	query := `
+	// Optional management unit codes filter
+	if len(e.ManagementUnitCodes) > 0 {
+		whereClause += fmt.Sprintf(" AND c.management_unit_code = ANY($%d)", argIndex)
+		args = append(args, pq.Array(e.ManagementUnitCodes))
+		argIndex++
+	}
+
+	// Optional date range filter
+	if !e.StartDate.IsZero() && !e.EndDate.IsZero() {
+		whereClause += fmt.Sprintf(" AND c.emission_date BETWEEN $%d AND $%d", argIndex, argIndex+1)
+		args = append(args, e.StartDate, e.EndDate)
+		argIndex += 2
+	}
+
+	query := fmt.Sprintf(`
 	SELECT 
 		c.management_unit_code AS management_unit_code,
 		pic.expense_nature_code_complete AS expense_nature_code_complete,
@@ -92,11 +109,8 @@ func (es *ExpensesStore) GetBudgetExecutionReport(ctx context.Context, e Expense
 		commitments c 
 	JOIN 
 		payment_impacted_commitments pic ON pic.commitment_code = c.commitment_code 
-	WHERE 
-		c.emission_date BETWEEN $1 AND $2
-		AND c.management_unit_code = ANY($3) 
-		AND pic.expense_nature_code_complete IS NOT NULL 
-		AND pic.expense_nature_code_complete != ''
+	%s
+		AND pic.expense_nature_code_complete IS NOT NULL
 	GROUP BY 
 		c.management_unit_code,
 		c.management_unit_name,
@@ -105,8 +119,9 @@ func (es *ExpensesStore) GetBudgetExecutionReport(ctx context.Context, e Expense
 	ORDER BY 
 		c.management_unit_code,
 		total_paid_value DESC;
-	`
-	rows, err := es.db.QueryxContext(ctx, query, e.StartDate, e.EndDate, pq.Array(e.Codes))
+	`, whereClause)
+
+	rows, err := es.db.QueryxContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query expenses by nature: %w", err)
 	}
@@ -134,8 +149,31 @@ func (es *ExpensesStore) GetBudgetExecutionReport(ctx context.Context, e Expense
 }
 
 func (es *ExpensesStore) GetBudgetExecutionSummary(ctx context.Context, e ExpensesFilter) (SummaryByUnits, error) {
+	whereClauseCommitments := "WHERE c.management_code = $1"
+	whereClauseLiquidations := "WHERE l.management_code = $1"
+	whereClausePayments := "WHERE p.management_code = $1"
+	args := []interface{}{e.ManagementCode}
+	argIndex := 2
 
-	query := `
+	// Optional management unit codes filter
+	if len(e.ManagementUnitCodes) > 0 {
+		whereClauseCommitments += fmt.Sprintf(" AND c.management_unit_code = ANY($%d)", argIndex)
+		whereClauseLiquidations += fmt.Sprintf(" AND l.management_unit_code = ANY($%d)", argIndex)
+		whereClausePayments += fmt.Sprintf(" AND p.management_unit_code = ANY($%d)", argIndex)
+		args = append(args, pq.Array(e.ManagementUnitCodes))
+		argIndex++
+	}
+
+	// Optional date range filter
+	if !e.StartDate.IsZero() && !e.EndDate.IsZero() {
+		whereClauseCommitments += fmt.Sprintf(" AND c.emission_date BETWEEN $%d AND $%d", argIndex, argIndex+1)
+		whereClauseLiquidations += fmt.Sprintf(" AND l.liquidation_emission_date BETWEEN $%d AND $%d", argIndex, argIndex+1)
+		whereClausePayments += fmt.Sprintf(" AND p.payment_emission_date BETWEEN $%d AND $%d", argIndex, argIndex+1)
+		args = append(args, e.StartDate, e.EndDate)
+		argIndex += 2
+	}
+
+	query := fmt.Sprintf(`
 	WITH TotalCommitted AS (
 		SELECT 
 			management_unit_code,
@@ -144,10 +182,7 @@ func (es *ExpensesStore) GetBudgetExecutionSummary(ctx context.Context, e Expens
 			commitments c 
 		LEFT JOIN 
 			commitment_items ci ON c.id = ci.commitment_id 
-		WHERE 
-			c.emission_date BETWEEN $1 AND $2
-		AND 
-			c.management_unit_code = ANY($3)
+		%s
 		GROUP BY 
 			management_unit_code
 	),
@@ -160,10 +195,7 @@ func (es *ExpensesStore) GetBudgetExecutionSummary(ctx context.Context, e Expens
 			liquidations l
 		LEFT JOIN 
 			liquidation_impacted_commitments lic ON l.liquidation_code = lic.liquidation_code
-		WHERE 
-			l.liquidation_emission_date BETWEEN $1 AND $2
-		AND 
-			l.management_unit_code = ANY($3)
+		%s
 		GROUP BY 
 			management_unit_code
 	),
@@ -176,10 +208,7 @@ func (es *ExpensesStore) GetBudgetExecutionSummary(ctx context.Context, e Expens
 			payments p
 		LEFT JOIN 
 			payment_impacted_commitments pic ON p.payment_code = pic.payment_code 
-		WHERE 
-			p.payment_emission_date BETWEEN $1 AND $2
-		AND 
-			p.management_unit_code = ANY($3)
+		%s
 		GROUP BY 
 			management_unit_code
 	)
@@ -199,10 +228,10 @@ func (es *ExpensesStore) GetBudgetExecutionSummary(ctx context.Context, e Expens
 		TotalCommitted c
 	FULL OUTER JOIN TotalLiquidated l ON c.management_unit_code = l.management_unit_code
 	FULL OUTER JOIN TotalPaid p ON COALESCE(c.management_unit_code, l.management_unit_code) = p.management_unit_code;
-	`
+	`, whereClauseCommitments, whereClauseLiquidations, whereClausePayments)
 
 	var rows []ExpensesTableSummaryRow
-	err := es.db.SelectContext(ctx, &rows, query, e.StartDate, e.EndDate, pq.Array(e.Codes))
+	err := es.db.SelectContext(ctx, &rows, query, args...)
 	if err != nil {
 		return SummaryByUnits{}, fmt.Errorf("failed to query consolidated expenses: %w", err)
 	}
@@ -212,21 +241,43 @@ func (es *ExpensesStore) GetBudgetExecutionSummary(ctx context.Context, e Expens
 	}, nil
 }
 
-func (es *ExpensesStore) GetGlobalBudgetExecutionSummary(ctx context.Context, e ExpensesFilter) (GlobalSummary, error) {
-	query := `
+func (es *ExpensesStore) GetBudgetExecutionSummaryByManagement(ctx context.Context, e ExpensesFilter) (GlobalSummary, error) {
+	whereClauseCommitments := "WHERE c.management_code = $1"
+	whereClauseLiquidations := "WHERE l.management_code = $1"
+	whereClausePayments := "WHERE p.management_code = $1"
+	args := []interface{}{e.ManagementCode}
+	argIndex := 2
+
+	// Optional date range filter
+	if !e.StartDate.IsZero() && !e.EndDate.IsZero() {
+		whereClauseCommitments += fmt.Sprintf(" AND c.emission_date BETWEEN $%d AND $%d", argIndex, argIndex+1)
+		whereClauseLiquidations += fmt.Sprintf(" AND l.liquidation_emission_date BETWEEN $%d AND $%d", argIndex, argIndex+1)
+		whereClausePayments += fmt.Sprintf(" AND p.payment_emission_date BETWEEN $%d AND $%d", argIndex, argIndex+1)
+		args = append(args, e.StartDate, e.EndDate)
+		argIndex += 2
+	}
+
+	query := fmt.Sprintf(`
 	WITH Totals AS (
 		SELECT 
 			COALESCE(SUM(ci.current_value), 0) AS committed_amount,
-			(SELECT COALESCE(SUM(lic.liquidated_value_brl), 0) FROM liquidations l JOIN liquidation_impacted_commitments lic ON l.liquidation_code = lic.liquidation_code WHERE l.liquidation_emission_date BETWEEN $1 AND $2 AND l.management_unit_code = ANY($3)) AS liquidated_amount,
-			(SELECT COALESCE(SUM(pic.paid_value_brl), 0) FROM payments p JOIN payment_impacted_commitments pic ON p.payment_code = pic.payment_code WHERE p.payment_emission_date BETWEEN $1 AND $2 AND p.management_unit_code = ANY($3)) AS paid_amount
+			(SELECT COALESCE(SUM(lic.liquidated_value_brl), 0) FROM liquidations
+				l JOIN
+				liquidation_impacted_commitments lic 
+				ON l.liquidation_code = lic.liquidation_code 
+				%s)
+				AS liquidated_amount,
+			(SELECT COALESCE(SUM(pic.paid_value_brl), 0) 
+				FROM payments p 
+				JOIN payment_impacted_commitments pic 
+				ON p.payment_code = pic.payment_code 
+				%s) 
+			AS paid_amount
 		FROM 
 			commitments c 
 		JOIN 
 			commitment_items ci ON c.id = ci.commitment_id 
-		WHERE 
-			c.emission_date BETWEEN $1 AND $2
-		AND 
-			c.management_unit_code = ANY($3)
+		%s
 	)
 	SELECT 
 		committed_amount,
@@ -240,10 +291,10 @@ func (es *ExpensesStore) GetGlobalBudgetExecutionSummary(ctx context.Context, e 
 		END AS execution_percentage
 	FROM 
 		Totals;
-	`
+	`, whereClauseLiquidations, whereClausePayments, whereClauseCommitments)
 
 	var result GlobalSummary
-	err := es.db.GetContext(ctx, &result, query, e.StartDate, e.EndDate, pq.Array(e.Codes))
+	err := es.db.GetContext(ctx, &result, query, args...)
 	if err != nil {
 		return GlobalSummary{}, fmt.Errorf("failed to query global expenses summary: %w", err)
 	}
@@ -252,7 +303,25 @@ func (es *ExpensesStore) GetGlobalBudgetExecutionSummary(ctx context.Context, e 
 }
 
 func (es *ExpensesStore) GetTopFavored(ctx context.Context, e ExpensesFilter, limit int) ([]TopFavored, error) {
-	query := `
+	whereClause := "WHERE p.management_code = $1"
+	args := []interface{}{e.ManagementCode}
+	argIndex := 2
+
+	// Optional management unit codes filter
+	if len(e.ManagementUnitCodes) > 0 {
+		whereClause += fmt.Sprintf(" AND p.management_unit_code = ANY($%d)", argIndex)
+		args = append(args, pq.Array(e.ManagementUnitCodes))
+		argIndex++
+	}
+
+	// Optional date range filter
+	if !e.StartDate.IsZero() && !e.EndDate.IsZero() {
+		whereClause += fmt.Sprintf(" AND p.payment_emission_date BETWEEN $%d AND $%d", argIndex, argIndex+1)
+		args = append(args, e.StartDate, e.EndDate)
+		argIndex += 2
+	}
+
+	query := fmt.Sprintf(`
 	SELECT 
 		p.favored_code,
 		p.favored_name,
@@ -262,48 +331,20 @@ func (es *ExpensesStore) GetTopFavored(ctx context.Context, e ExpensesFilter, li
 		payments p
 	JOIN 
 		payment_impacted_commitments pic ON p.payment_code = pic.payment_code
-	WHERE 
-		p.payment_emission_date BETWEEN $1 AND $2
-		AND p.management_unit_code = ANY($3)
+	%s
 	GROUP BY 
 		p.favored_code, p.favored_name
 	ORDER BY 
 		total_paid_value DESC
-	LIMIT $4;
-	`
+	LIMIT $%d;
+	`, whereClause, argIndex)
+
+	args = append(args, limit)
 
 	var result []TopFavored
-	err := es.db.SelectContext(ctx, &result, query, e.StartDate, e.EndDate, pq.Array(e.Codes), limit)
+	err := es.db.SelectContext(ctx, &result, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query top favored: %w", err)
-	}
-
-	return result, nil
-}
-
-func (es *ExpensesStore) GetExpensesByCategory(ctx context.Context, e ExpensesFilter) ([]ExpensesByCategory, error) {
-	query := `
-	SELECT 
-		p.expense_category_code,
-		p.expense_category,
-		SUM(pic.paid_value_brl) AS total_paid_value
-	FROM 
-		payments p
-	JOIN 
-		payment_impacted_commitments pic ON p.payment_code = pic.payment_code
-	WHERE 
-		p.payment_emission_date BETWEEN $1 AND $2
-		AND p.management_unit_code = ANY($3)
-	GROUP BY 
-		p.expense_category_code, p.expense_category
-	ORDER BY 
-		total_paid_value DESC;
-	`
-
-	var result []ExpensesByCategory
-	err := es.db.SelectContext(ctx, &result, query, e.StartDate, e.EndDate, pq.Array(e.Codes))
-	if err != nil {
-		return nil, fmt.Errorf("failed to query expenses by category: %w", err)
 	}
 
 	return result, nil
