@@ -30,7 +30,7 @@ type ExpensesTableSummaryRow struct {
 }
 
 type SummaryByUnits struct {
-	Rows []ExpensesTableSummaryRow `json:"rows"`
+	Units []ExpensesTableSummaryRow `json:"units"`
 }
 
 type GlobalSummary struct {
@@ -237,7 +237,7 @@ func (es *ExpensesStore) GetBudgetExecutionSummary(ctx context.Context, e Expens
 	}
 
 	return SummaryByUnits{
-		Rows: rows,
+		Units: rows,
 	}, nil
 }
 

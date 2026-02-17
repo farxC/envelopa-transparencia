@@ -1,11 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
-	"time"
 
 	"github.com/farxc/envelopa-transparencia/internal/response"
 	"github.com/farxc/envelopa-transparencia/internal/store"
@@ -18,73 +15,6 @@ type (
 	GetTopFavoredResponse         = response.APIResponse[[]store.TopFavored]
 	GetExpensesByCategoryResponse = response.APIResponse[[]store.ExpensesByCategory]
 )
-
-func isValidCodes(codeParam string) bool {
-	if codeParam == "" {
-		return false
-	}
-	// Check if all characters are digits, separated by commas
-	for _, r := range codeParam {
-		if (r < '0' || r > '9') && r != ',' {
-			return false
-		}
-	}
-
-	return true
-}
-
-func parseExpensesFilter(r *http.Request) (store.ExpensesFilter, error) {
-	var filter store.ExpensesFilter
-
-	// Required: management_code
-	managementCode := r.URL.Query().Get("management_code")
-	if managementCode == "" {
-		return filter, fmt.Errorf("management_code is required")
-	}
-	managementCodeInt, err := strconv.Atoi(managementCode)
-	if err != nil {
-		return filter, fmt.Errorf("invalid management_code: %w", err)
-	}
-	filter.ManagementCode = managementCodeInt
-
-	// Optional: management_unit_codes
-	codesParam := r.URL.Query().Get("management_unit_codes")
-	if codesParam != "" {
-		if !isValidCodes(codesParam) {
-			return filter, fmt.Errorf("invalid codes parameter")
-		}
-		filter.ManagementUnitCodes = make([]int, 0)
-		for _, code := range strings.Split(codesParam, ",") {
-			codeInt, err := strconv.Atoi(code)
-			if err != nil {
-				return filter, fmt.Errorf("invalid management_unit_code: %w", err)
-			}
-			filter.ManagementUnitCodes = append(filter.ManagementUnitCodes, codeInt)
-		}
-	}
-
-	// Optional: date range
-	startParam := r.URL.Query().Get("start_date")
-	endParam := r.URL.Query().Get("end_date")
-
-	if startParam != "" {
-		startDate, err := time.Parse("2006-01-02", startParam)
-		if err != nil {
-			return filter, fmt.Errorf("invalid start_date format (expected YYYY-MM-DD)")
-		}
-		filter.StartDate = startDate
-	}
-
-	if endParam != "" {
-		endDate, err := time.Parse("2006-01-02", endParam)
-		if err != nil {
-			return filter, fmt.Errorf("invalid end_date format (expected YYYY-MM-DD)")
-		}
-		filter.EndDate = endDate
-	}
-
-	return filter, nil
-}
 
 // @Summary		Get expenses summary
 // @Description	Get a summary of expenses by applying various filters.
@@ -100,6 +30,7 @@ func parseExpensesFilter(r *http.Request) (store.ExpensesFilter, error) {
 // @Router			/expenses/summary [get]
 func (app *application) handleGetExpensesSummary(w http.ResponseWriter, r *http.Request) {
 	filter, err := parseExpensesFilter(r)
+
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
