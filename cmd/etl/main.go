@@ -59,7 +59,6 @@ func (m *MemoryMonitor) Start(interval time.Duration, log *logger.Logger) {
 				return
 			}
 		}
-
 	}()
 }
 
@@ -71,7 +70,6 @@ func (m *MemoryMonitor) update(logger *logger.Logger) {
 
 	currentGoroutines := runtime.NumGoroutine()
 	currentMemoryMB := mStats.Alloc / 1024 / 1024
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -120,7 +118,7 @@ func createTmpDirs(appLogger *logger.Logger) error {
 func main() {
 	const component = "Main"
 	monitor := NewMonitor()
-	var appLogger = &logger.Logger{MinLevel: logger.LevelInfo}
+	appLogger := &logger.Logger{MinLevel: logger.LevelInfo}
 
 	monitor.Start(400*time.Millisecond, appLogger)
 
@@ -144,7 +142,6 @@ func main() {
 		cfg.db.maxOpenConns,
 		cfg.db.maxIdleConns,
 		cfg.db.maxIdleTime)
-
 	if err != nil {
 		appLogger.Fatal(component, "Database connection failed: error=%v", err)
 		return

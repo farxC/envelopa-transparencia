@@ -1,0 +1,4 @@
+ALTER TABLE commitment_items DROP CONSTRAINT IF EXISTS commitment_items_commitment_code_sequential_key;
+ALTER TABLE commitment_items_history DROP CONSTRAINT IF EXISTS commitment_items_history_pk;
+ALTER TABLE payment_impacted_commitments DROP CONSTRAINT IF EXISTS payment_impacted_commitments_pk;
+ALTER TABLE liquidation_impacted_commitments DROP CONSTRAINT IF EXISTS liquidation_impacted_commitments_pk;
