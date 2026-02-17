@@ -44,10 +44,6 @@ func (app *application) mount() http.Handler {
 	// processing should be stopped.
 	r.Use(middleware.Timeout(60 * time.Second))
 
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Hello world!"))
-	})
-
 	r.Route("/v1", func(r chi.Router) {
 		r.Get("/health", app.healthCheckHandler)
 
@@ -58,10 +54,9 @@ func (app *application) mount() http.Handler {
 
 		r.Route("/expenses", func(r chi.Router) {
 			r.Get("/summary", app.handleGetExpensesSummary)
-			r.Get("/summary/global", app.handleGetGlobalExpensesSummary)
+			r.Get("/summary/by-management", app.handleGetExpensesSummaryByManagement)
 			r.Get("/budget-execution/report", app.handleGetBudgetExecutionReport)
 			r.Get("/top-favored", app.handleGetTopFavored)
-			r.Get("/by-category", app.handleGetExpensesByCategory)
 		})
 		r.Route("/commitments", func(r chi.Router) {
 			r.Get("/", app.handleGetCommitmentsInformation)
