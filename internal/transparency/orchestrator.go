@@ -128,7 +128,7 @@ func (o *Orchestrator) Start(ctx context.Context) {
 	}
 
 	// 2. Start Result Listener (The Feedback Loop)
-	go o.listenToResults(ctx)
+	go o.listenToResults()
 }
 
 func (o *Orchestrator) Wait() {
@@ -200,16 +200,19 @@ func (o *Orchestrator) processDay(ctx context.Context, job IngestionJob) Ingesti
 	const component = "Processor"
 	dateCode := job.Date.Format("20060102")
 
-	// 1. Download
-	url := downloader.PortalTransparenciaURL + dateCode
-	download := downloader.FetchData(url, dateCode, o.appLogger)
-	if !download.Success {
-		return IngestionResult{Job: job, Error: fmt.Errorf("download failed")}
+	// 1. Download if not downloaded
+	expected_path := "tmp/zips/despesas_" + dateCode + ".zip"
+	if _, err := os.Stat(expected_path); os.IsNotExist(err) {
+		url := downloader.PortalTransparenciaURL + dateCode
+		download := downloader.FetchData(url, dateCode, o.appLogger)
+		if !download.Success {
+			return IngestionResult{Job: job, Error: fmt.Errorf("download failed")}
+		}
 	}
 
 	// 2. Extract
 	outputDir := "tmp/data/despesas_" + dateCode
-	extraction := files.UnzipFile(download.OutputPath, outputDir, o.appLogger)
+	extraction := files.UnzipFile(expected_path, outputDir, o.appLogger)
 	if !extraction.Success {
 		return IngestionResult{Job: job, Error: fmt.Errorf("extraction failed")}
 	}
@@ -240,7 +243,7 @@ func (o *Orchestrator) processDay(ctx context.Context, job IngestionJob) Ingesti
 	return IngestionResult{Job: job, Error: nil}
 }
 
-func (o *Orchestrator) listenToResults(ctx context.Context) {
+func (o *Orchestrator) listenToResults() {
 	const component = "Orchestrator-Feedback"
 	for result := range o.resultChan {
 		dateStr := result.Job.Date.Format(time.DateOnly)
