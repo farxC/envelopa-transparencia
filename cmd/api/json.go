@@ -21,7 +21,7 @@ func init() {
 
 type ExpensesFilterRequest struct {
 	ManagementCode      int       `validate:"required,number"`
-	ManagementUnitCodes []int     `validate:"dive,number,max=20"`
+	ManagementUnitCodes []int     `validate:"dive,number"`
 	StartDate           time.Time `validate:"omitempty,ltefield=EndDate"`
 	EndDate             time.Time `validate:"omitempty,gtefield=StartDate"`
 }

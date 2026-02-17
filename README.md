@@ -39,15 +39,37 @@ The codebase is organized into a clean and modular architecture:
 
 Once data is ingested, the system provides a specialized API to access processed information:
 
+### Documentation
+*   `GET /v1/docs/*`: Interactive Swagger UI documentation for all API endpoints.
+
+### Health
 *   `GET /v1/health`: Checks system health and database connectivity.
-*   `GET /v1/expenses/summary`: Returns a summary of expenses for the filtered units.
+
+### Expenses
+*   `GET /v1/expenses/summary`: Returns a summary of expenses by management units.
+    *   **Parameters:** `management_code` (required), `management_unit_codes`, `start_date`, `end_date`
+*   `GET /v1/expenses/summary/by-management`: Returns a global summary of expenses by management code.
+    *   **Parameters:** `management_code` (required), `start_date`, `end_date`
 *   `GET /v1/expenses/budget-execution/report`: Generates detailed budget execution reports.
+    *   **Parameters:** `management_code` (required), `management_unit_codes`, `start_date`, `end_date`
+*   `GET /v1/expenses/top-favored`: Returns the top favored entities (suppliers/contractors) based on payment values.
+    *   **Parameters:** `management_code` (required), `management_unit_codes`, `start_date`, `end_date`, `limit` (default: 10)
+
+### Commitments
+*   `GET /v1/commitments/`: Retrieves detailed commitment information with filtering options.
+    *   **Parameters:** `start_date`, `end_date`, `management_code`, `management_unit_codes`, `commitment_codes`
+
+### Ingestion
+*   `GET /v1/ingestion/history`: Returns the history of data ingestion processes.
+    *   **Parameters:** `limit` (default: 10)
+*   `POST /v1/ingestion`: Creates a new ingestion record to track ETL execution.
 
 ## Technologies Used
 
 *   **Language:** Go (Golang)
 *   **Database:** PostgreSQL
 *   **Routing:** Chi Router
+*   **Documentation:** Swagger/OpenAPI
 *   **Data Processing:** Gota (Dataframes for Go)
 *   **Containerization:** Docker & Docker Compose
 *   **Migrations:** Standard SQL migrations
@@ -104,6 +126,12 @@ go run cmd/etl/main.go -init 2025-01-01 -end 2025-01-05 -byManagingCode -codes "
 
 ### Running the API process
 **Start the API:**
-    ```bash
-    air
+```bash
+air
+```
+
+**Access API Documentation:**
+Once the API is running, you can access the interactive Swagger documentation at:
+    ```
+    http://localhost:8080/v1/docs/index.html
     ```

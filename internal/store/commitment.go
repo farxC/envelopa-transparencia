@@ -195,7 +195,7 @@ func (cs *CommitmentStore) InsertCommitmentItem(ctx context.Context, item *Commi
 		ON CONFLICT (commitment_code, sequential) DO UPDATE SET
 		commitment_id = EXCLUDED.commitment_id,
 		commitment_code = EXCLUDED.commitment_code,
-	  expense_category_code = EXCLUDED.expense_category_code,
+	  	expense_category_code = EXCLUDED.expense_category_code,
 		expense_category = EXCLUDED.expense_category,
 		expense_group_code = EXCLUDED.expense_group_code,
 		expense_group = EXCLUDED.expense_group,
@@ -253,7 +253,7 @@ func (cs *CommitmentStore) InsertCommitmentItemHistory(ctx context.Context, hist
 		commitment_code = EXCLUDED.commitment_code,
 		operation_type = EXCLUDED.operation_type,
 		item_quantity = EXCLUDED.item_quantity,
-		sequential = ExCLUDED.sequential,
+		sequential = EXCLUDED.sequential,
 		item_unit_price = EXCLUDED.item_unit_price,
 		item_total_price = EXCLUDED.item_total_price,
 		operation_date = EXCLUDED.operation_date,
