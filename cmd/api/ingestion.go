@@ -4,12 +4,13 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/farxc/envelopa-transparencia/internal/response"
-	"github.com/farxc/envelopa-transparencia/internal/store"
+	"github.com/farxc/envelopa-transparencia/internal/domain/model"
+	"github.com/farxc/envelopa-transparencia/internal/domain/response"
+	"github.com/farxc/envelopa-transparencia/internal/infrastructure/store"
 )
 
-type GetIngestionHistoryResponse = response.APIResponse[[]store.IngestionHistory]
-type CreateIngestionResponse = response.APIResponse[*store.IngestionHistory]
+type GetIngestionHistoryResponse = response.APIResponse[[]model.IngestionHistory]
+type CreateIngestionResponse = response.APIResponse[*model.IngestionHistory]
 
 // @Summary		Get ingestion history
 // @Description	Get a list of the latest ingestion records.
@@ -83,7 +84,7 @@ func (app *application) handleCreateIngestion(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	history := &store.IngestionHistory{
+	history := &model.IngestionHistory{
 		ReferenceDate:  refDate,
 		SourceFile:     input.SourceFile,
 		TriggerType:    input.TriggerType,

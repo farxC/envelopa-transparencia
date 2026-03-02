@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
+	"github.com/farxc/envelopa-transparencia/internal/domain/model"
+	"github.com/farxc/envelopa-transparencia/internal/domain/service"
 	"github.com/lib/pq"
 )
 
@@ -13,37 +14,7 @@ type CommitmentStore struct {
 	db GenericQueryer
 }
 
-type GetCommitmentInformationFilter struct {
-	CommitmentCodes     []string
-	ManagementUnitCodes []string
-	ManagementCode      string
-	StartDate           time.Time
-	EndDate             time.Time
-}
-
-type CommitmentItemInformation struct {
-	ItemDescription   string  `db:"item_description" json:"item_description"`
-	CurrentValue      float64 `db:"current_value" json:"current_value"`
-	SubExpenseElement string  `db:"sub_expense_element" json:"sub_expense_element"`
-	Description       string  `db:"description" json:"description"`
-	Quantity          float64 `db:"quantity" json:"quantity"`
-	Sequential        int     `db:"sequential" json:"sequential"`
-}
-
-type CommitmentInformation struct {
-	ManagementUnitCode     string                      `db:"management_unit_code" json:"management_unit_code"`
-	CommitmentCode         string                      `db:"commitment_code" json:"commitment_code"`
-	CommitmentTotalValue   float64                     `db:"commitment_total_value" json:"commitment_total_value"`
-	CommitmentEmissionDate time.Time                   `db:"commitment_emission_date" json:"commitment_emission_date"`
-	CommitmentProcess      string                      `db:"commitment_process" json:"commitment_process"`
-	CommitmentType         string                      `db:"commitment_type" json:"commitment_type"`
-	CommitmentFavored      string                      `db:"commitment_favored" json:"commitment_favored"`
-	CommitmentFavoredCode  string                      `db:"commitment_favored_code" json:"commitment_favored_code"`
-	CommitmentItemsRaw     json.RawMessage             `db:"commitment_items" json:"-"`
-	CommitmentItems        []CommitmentItemInformation `json:"commitment_items"`
-}
-
-func (cs *CommitmentStore) InsertCommitment(ctx context.Context, commitment *Commitment) error {
+func (cs *CommitmentStore) InsertCommitment(ctx context.Context, commitment *model.Commitment) error {
 	query := `INSERT INTO commitments (
 		id,
 		commitment_code,
@@ -146,7 +117,7 @@ func (cs *CommitmentStore) InsertCommitment(ctx context.Context, commitment *Com
 	return nil
 }
 
-func (cs *CommitmentStore) InsertCommitmentItem(ctx context.Context, item *CommitmentItem) error {
+func (cs *CommitmentStore) InsertCommitmentItem(ctx context.Context, item *model.CommitmentItem) error {
 	query := `INSERT INTO commitment_items (
 		commitment_id,
 		commitment_code,
@@ -224,7 +195,7 @@ func (cs *CommitmentStore) InsertCommitmentItem(ctx context.Context, item *Commi
 	return nil
 }
 
-func (cs *CommitmentStore) InsertCommitmentItemHistory(ctx context.Context, history *CommitmentItemsHistory) error {
+func (cs *CommitmentStore) InsertCommitmentItemHistory(ctx context.Context, history *model.CommitmentItemsHistory) error {
 	query := `INSERT INTO commitment_items_history (
 		commitment_id,
 		commitment_code,
@@ -268,7 +239,7 @@ func (cs *CommitmentStore) InsertCommitmentItemHistory(ctx context.Context, hist
 	return nil
 }
 
-func (cs *CommitmentStore) GetCommitmentInformation(ctx context.Context, filter GetCommitmentInformationFilter) ([]CommitmentInformation, error) {
+func (cs *CommitmentStore) GetCommitmentInformation(ctx context.Context, filter service.GetCommitmentInformationFilter) ([]service.CommitmentInformation, error) {
 	whereClause := "WHERE c.management_code = $1"
 	args := []interface{}{filter.ManagementCode}
 	argIndex := 2
@@ -317,7 +288,7 @@ func (cs *CommitmentStore) GetCommitmentInformation(ctx context.Context, filter 
 		c.management_unit_code, c.commitment_code, c.emission_date, c.process, c.type, c.favored_name, c.favored_code;
 	`, whereClause)
 
-	var c []CommitmentInformation
+	var c []service.CommitmentInformation
 	err := cs.db.SelectContext(ctx, &c, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get commitment information: %w", err)

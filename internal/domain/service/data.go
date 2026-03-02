@@ -1,7 +1,7 @@
-package types
+package service
 
 import (
-	"github.com/farxc/envelopa-transparencia/internal/store"
+	"github.com/farxc/envelopa-transparencia/internal/domain/model"
 	"github.com/go-gota/gota/dataframe"
 )
 
@@ -63,15 +63,15 @@ type OutputExtractionFiles struct {
 	Files map[DataType]string
 }
 
-type UnitCommitments struct {
+type UnitsExpenses struct {
 	UgCode       string              `json:"ug_code"`
 	UgName       string              `json:"ug_name"`
-	Commitments  []store.Commitment  `json:"commitments"`
-	Liquidations []store.Liquidation `json:"liquidations"`
-	Payments     []store.Payment     `json:"payments"`
+	Commitments  []model.Commitment  `json:"commitments"`
+	Liquidations []model.Liquidation `json:"liquidations"`
+	Payments     []model.Payment     `json:"payments"`
 }
 
-type CommitmentPayload struct {
-	ExtractionDate  string            `json:"extraction_date"`
-	UnitCommitments []UnitCommitments `json:"units"`
+type ExpensesPayload struct {
+	ExtractionDate string          `json:"extraction_date"`
+	UnitsExpenses  []UnitsExpenses `json:"units"`
 }

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/farxc/envelopa-transparencia/internal/response"
-	"github.com/farxc/envelopa-transparencia/internal/store"
+	"github.com/farxc/envelopa-transparencia/internal/domain/response"
+	"github.com/farxc/envelopa-transparencia/internal/domain/service"
 	"github.com/go-playground/validator/v10"
 )
 
@@ -53,17 +53,17 @@ func readJSON(w http.ResponseWriter, r *http.Request, data any) error {
 
 	return nil
 }
-func parseExpensesFilter(r *http.Request) (store.ExpensesFilter, error) {
+func parseExpensesFilter(r *http.Request) (service.ExpensesFilter, error) {
 	var req ExpensesFilterRequest
 
 	// Required: management_code
 	managementCode := r.URL.Query().Get("management_code")
 	if managementCode == "" {
-		return store.ExpensesFilter{}, fmt.Errorf("management_code is required")
+		return service.ExpensesFilter{}, fmt.Errorf("management_code is required")
 	}
 	managementCodeInt, err := strconv.Atoi(managementCode)
 	if err != nil {
-		return store.ExpensesFilter{}, fmt.Errorf("invalid management_code: %w", err)
+		return service.ExpensesFilter{}, fmt.Errorf("invalid management_code: %w", err)
 	}
 	req.ManagementCode = managementCodeInt
 
@@ -74,7 +74,7 @@ func parseExpensesFilter(r *http.Request) (store.ExpensesFilter, error) {
 		for _, code := range strings.Split(codesParam, ",") {
 			codeInt, err := strconv.Atoi(code)
 			if err != nil {
-				return store.ExpensesFilter{}, fmt.Errorf("invalid management_unit_code: %w", err)
+				return service.ExpensesFilter{}, fmt.Errorf("invalid management_unit_code: %w", err)
 			}
 			req.ManagementUnitCodes = append(req.ManagementUnitCodes, codeInt)
 		}
@@ -87,7 +87,7 @@ func parseExpensesFilter(r *http.Request) (store.ExpensesFilter, error) {
 	if startParam != "" {
 		startDate, err := time.Parse("2006-01-02", startParam)
 		if err != nil {
-			return store.ExpensesFilter{}, fmt.Errorf("invalid start_date format (expected YYYY-MM-DD)")
+			return service.ExpensesFilter{}, fmt.Errorf("invalid start_date format (expected YYYY-MM-DD)")
 		}
 		req.StartDate = startDate
 	}
@@ -95,21 +95,21 @@ func parseExpensesFilter(r *http.Request) (store.ExpensesFilter, error) {
 	if endParam != "" {
 		endDate, err := time.Parse("2006-01-02", endParam)
 		if err != nil {
-			return store.ExpensesFilter{}, fmt.Errorf("invalid end_date format (expected YYYY-MM-DD)")
+			return service.ExpensesFilter{}, fmt.Errorf("invalid end_date format (expected YYYY-MM-DD)")
 		}
 		req.EndDate = endDate
 	}
 
 	if err := Validate.Struct(req); err != nil {
-		return store.ExpensesFilter{}, fmt.Errorf("validation error: %w", err)
+		return service.ExpensesFilter{}, fmt.Errorf("validation error: %w", err)
 	}
 
 	return req.ToStoreFilter(), nil
 }
 
 // Add converter method
-func (r ExpensesFilterRequest) ToStoreFilter() store.ExpensesFilter {
-	return store.ExpensesFilter{
+func (r ExpensesFilterRequest) ToStoreFilter() service.ExpensesFilter {
+	return service.ExpensesFilter{
 		ManagementCode:      r.ManagementCode,
 		ManagementUnitCodes: r.ManagementUnitCodes,
 		StartDate:           r.StartDate,

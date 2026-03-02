@@ -3,9 +3,9 @@ package main
 import (
 	"log"
 
-	"github.com/farxc/envelopa-transparencia/internal/db"
-	"github.com/farxc/envelopa-transparencia/internal/env"
-	"github.com/farxc/envelopa-transparencia/internal/store"
+	"github.com/farxc/envelopa-transparencia/internal/infrastructure/db"
+	"github.com/farxc/envelopa-transparencia/internal/infrastructure/env"
+	"github.com/farxc/envelopa-transparencia/internal/infrastructure/store"
 )
 
 //	@title			Envelopa Transparência

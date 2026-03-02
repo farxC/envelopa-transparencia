@@ -5,11 +5,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/farxc/envelopa-transparencia/internal/response"
-	"github.com/farxc/envelopa-transparencia/internal/store"
+	"github.com/farxc/envelopa-transparencia/internal/domain/response"
+	"github.com/farxc/envelopa-transparencia/internal/domain/service"
 )
 
-type GetCommitmentsInformationResponse = response.APIResponse[[]store.CommitmentInformation]
+type GetCommitmentsInformationResponse = response.APIResponse[[]service.CommitmentInformation]
 
 // @Summary		Get commitments information
 // @Description	Get commitments information by applying various filters.
@@ -31,7 +31,7 @@ func (app *application) handleGetCommitmentsInformation(w http.ResponseWriter, r
 	managementUnitCodesParam := r.URL.Query().Get("management_unit_codes")
 	commitmentCodesParam := r.URL.Query().Get("commitment_codes")
 
-	var filter store.GetCommitmentInformationFilter
+	var filter service.GetCommitmentInformationFilter
 
 	filter.StartDate, _ = time.Parse("2006-01-02", parseDateOrDefault(startParam, "2000-01-01"))
 	filter.EndDate, _ = time.Parse("2006-01-02", parseDateOrDefault(endParam, "2100-12-31"))

@@ -1,4 +1,4 @@
-package transparency
+package application
 
 import (
 	"context"
@@ -7,12 +7,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/farxc/envelopa-transparencia/internal/logger"
-	"github.com/farxc/envelopa-transparencia/internal/store"
-	"github.com/farxc/envelopa-transparencia/internal/transparency/downloader"
-	"github.com/farxc/envelopa-transparencia/internal/transparency/files"
-	"github.com/farxc/envelopa-transparencia/internal/transparency/load"
-	"github.com/farxc/envelopa-transparencia/internal/transparency/types"
+	"github.com/farxc/envelopa-transparencia/internal/domain/model"
+	"github.com/farxc/envelopa-transparencia/internal/domain/service"
+	"github.com/farxc/envelopa-transparencia/internal/infrastructure/client/portal"
+	"github.com/farxc/envelopa-transparencia/internal/infrastructure/filesystem"
+	"github.com/farxc/envelopa-transparencia/internal/infrastructure/logger"
+	"github.com/farxc/envelopa-transparencia/internal/infrastructure/store"
 )
 
 type IngestionJob struct {
@@ -31,8 +31,9 @@ type IngestionResult struct {
 }
 
 type Orchestrator struct {
-	storage   *store.Storage
-	appLogger *logger.Logger
+	storage                  *store.Storage
+	appLogger                *logger.Logger
+	transparencyPortalClient service.TransparencyPortalClient
 
 	// Settings
 	maxConcurrency int
@@ -40,7 +41,7 @@ type Orchestrator struct {
 	staleTimeout   time.Duration
 
 	// Internal State
-	statusMap map[string]store.IngestionHistory
+	statusMap map[string]model.IngestionHistory
 	mu        sync.RWMutex
 	wg        sync.WaitGroup
 
@@ -49,16 +50,17 @@ type Orchestrator struct {
 	resultChan chan IngestionResult
 }
 
-func NewOrchestrator(storage *store.Storage, appLogger *logger.Logger, concurrency int) *Orchestrator {
+func NewOrchestrator(storage *store.Storage, transparencyPortalClient service.TransparencyPortalClient, appLogger *logger.Logger, concurrency int) *Orchestrator {
 	return &Orchestrator{
-		storage:        storage,
-		appLogger:      appLogger,
-		maxConcurrency: concurrency,
-		retryLimit:     3,
-		staleTimeout:   30 * time.Minute,
-		statusMap:      make(map[string]store.IngestionHistory),
-		jobChan:        make(chan IngestionJob, 100),
-		resultChan:     make(chan IngestionResult, 100),
+		storage:                  storage,
+		transparencyPortalClient: transparencyPortalClient,
+		appLogger:                appLogger,
+		maxConcurrency:           concurrency,
+		retryLimit:               3,
+		staleTimeout:             30 * time.Minute,
+		statusMap:                make(map[string]model.IngestionHistory),
+		jobChan:                  make(chan IngestionJob, 100),
+		resultChan:               make(chan IngestionResult, 100),
 	}
 }
 
@@ -158,7 +160,7 @@ func (o *Orchestrator) worker(ctx context.Context, wg *sync.WaitGroup) {
 			scope = store.ScopeTypeManagement
 		}
 
-		history := &store.IngestionHistory{
+		history := &model.IngestionHistory{
 			ReferenceDate:  job.Date,
 			TriggerType:    job.Trigger,
 			ScopeType:      scope,
@@ -203,8 +205,8 @@ func (o *Orchestrator) processDay(ctx context.Context, job IngestionJob) Ingesti
 	// 1. Download if not downloaded
 	expected_path := "tmp/zips/despesas_" + dateCode + ".zip"
 	if _, err := os.Stat(expected_path); os.IsNotExist(err) {
-		url := downloader.PortalTransparenciaURL + dateCode
-		download := downloader.FetchData(url, dateCode, o.appLogger)
+		url := portal.PortalTransparenciaURL + dateCode
+		download := o.transparencyPortalClient.FetchExpensesData(url, dateCode)
 		if !download.Success {
 			return IngestionResult{Job: job, Error: fmt.Errorf("download failed")}
 		}
@@ -212,7 +214,7 @@ func (o *Orchestrator) processDay(ctx context.Context, job IngestionJob) Ingesti
 
 	// 2. Extract
 	outputDir := "tmp/data/despesas_" + dateCode
-	extraction := files.UnzipFile(expected_path, outputDir, o.appLogger)
+	extraction := filesystem.UnzipFile(expected_path, outputDir, o.appLogger)
 	if !extraction.Success {
 		return IngestionResult{Job: job, Error: fmt.Errorf("extraction failed")}
 	}
@@ -224,18 +226,17 @@ func (o *Orchestrator) processDay(ctx context.Context, job IngestionJob) Ingesti
 		codeStrings[i] = fmt.Sprintf("%d", c)
 	}
 
-	extFiles := types.OutputExtractionFiles{
+	extFiles := service.OutputExtractionFiles{
 		Date:  dateCode,
-		Files: files.BuildFilesForDate(dateCode, extraction.OutputDir),
+		Files: filesystem.BuildFilesForDate(dateCode, extraction.OutputDir),
 	}
 
-	payload, err := ExtractData(extFiles, codeStrings, job.IsManagingCode, o.appLogger)
+	payload, err := o.transparencyPortalClient.ExtractExpenses(extFiles, codeStrings, job.IsManagingCode)
 	if err != nil {
-
 		return IngestionResult{Job: job, Error: err}
 	}
 
-	err = load.LoadPayload(ctx, payload, o.storage, o.appLogger)
+	err = store.LoadPayload(ctx, payload, o.storage, o.appLogger)
 	if err != nil {
 		return IngestionResult{Job: job, Error: err}
 	}
@@ -262,7 +263,7 @@ func (o *Orchestrator) listenToResults() {
 			o.appLogger.Info(component, "Job completed successfully: date=%s", dateStr)
 
 			o.mu.Lock()
-			o.statusMap[dateStr] = store.IngestionHistory{
+			o.statusMap[dateStr] = model.IngestionHistory{
 				Status:        store.StatusSuccess,
 				ReferenceDate: result.Job.Date,
 				ProcessedAt:   time.Now(),

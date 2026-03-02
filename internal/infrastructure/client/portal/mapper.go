@@ -1,13 +1,13 @@
-package converter
+package portal
 
 import (
-	"github.com/farxc/envelopa-transparencia/internal/store"
-	"github.com/farxc/envelopa-transparencia/internal/transparency/utils"
+	"github.com/farxc/envelopa-transparencia/internal/domain/model"
+	"github.com/farxc/envelopa-transparencia/internal/utils"
 	"github.com/go-gota/gota/dataframe"
 )
 
-func DfRowToCommitment(df dataframe.DataFrame, rowIdx int) store.Commitment {
-	return store.Commitment{
+func DfRowToCommitment(df dataframe.DataFrame, rowIdx int) model.Commitment {
+	return model.Commitment{
 		ID:                            utils.ParseInt64(utils.GetStr("Id Empenho", rowIdx, &df)),
 		CommitmentCode:                utils.GetStr("Código Empenho", rowIdx, &df),
 		ResumedCommitmentCode:         utils.GetStr("Código Empenho Resumido", rowIdx, &df),
@@ -36,12 +36,12 @@ func DfRowToCommitment(df dataframe.DataFrame, rowIdx int) store.Commitment {
 		CommitmentOriginalValue:       utils.ParseFloat(utils.GetStr("Valor Original do Empenho", rowIdx, &df)),
 		CommitmentValueConvertedToBrl: utils.ParseFloat(utils.GetStr("Valor do Empenho Convertido pra R$", rowIdx, &df)),
 		ConversionValueUsed:           utils.ParseFloat(utils.GetStr("Valor Utilizado na Conversão", rowIdx, &df)),
-		Items:                         []store.CommitmentItem{},
+		Items:                         []model.CommitmentItem{},
 	}
 }
 
-func DfRowToLiquidation(df dataframe.DataFrame, rowIdx int) store.Liquidation {
-	return store.Liquidation{
+func DfRowToLiquidation(df dataframe.DataFrame, rowIdx int) model.Liquidation {
+	return model.Liquidation{
 		LiquidationCode:         utils.GetStr("Código Liquidação", rowIdx, &df),
 		LiquidationCodeResumed:  utils.GetStr("Código Liquidação Resumido", rowIdx, &df),
 		LiquidationEmissionDate: utils.ParseDate(utils.GetStr("Data Emissão", rowIdx, &df)),
@@ -64,12 +64,12 @@ func DfRowToLiquidation(df dataframe.DataFrame, rowIdx int) store.Liquidation {
 		BudgetPlan:              utils.GetStr("Plano Orçamentário", rowIdx, &df),
 		BudgetPlanCode:          utils.GetInt32("Código Plano Orçamentário", rowIdx, &df),
 		Observation:             utils.GetStr("Observação", rowIdx, &df),
-		ImpactedCommitments:     []store.LiquidationImpactedCommitment{},
+		ImpactedCommitments:     []model.LiquidationImpactedCommitment{},
 	}
 }
 
-func DfRowToPayment(df dataframe.DataFrame, rowIdx int) store.Payment {
-	return store.Payment{
+func DfRowToPayment(df dataframe.DataFrame, rowIdx int) model.Payment {
+	return model.Payment{
 		PaymentCode:             utils.GetStr("Código Pagamento", rowIdx, &df),
 		PaymentCodeResumed:      utils.GetStr("Código Pagamento Resumido", rowIdx, &df),
 		PaymentEmissionDate:     utils.ParseDate(utils.GetStr("Data Emissão", rowIdx, &df)),
@@ -97,12 +97,12 @@ func DfRowToPayment(df dataframe.DataFrame, rowIdx int) store.Payment {
 		OriginalPaymentValue:    utils.ParseFloat(utils.GetStr("Valor Original do Pagamento", rowIdx, &df)),
 		ConvertedPaymentValue:   utils.ParseFloat(utils.GetStr("Valor do Pagamento Convertido pra R$", rowIdx, &df)),
 		ConversionUsedValue:     utils.ParseFloat(utils.GetStr("Valor Utilizado na Conversão", rowIdx, &df)),
-		ImpactedCommitments:     []store.PaymentImpactedCommitment{},
+		ImpactedCommitments:     []model.PaymentImpactedCommitment{},
 	}
 }
 
-func DfRowToCommitmentItem(df dataframe.DataFrame, rowIdx int) store.CommitmentItem {
-	return store.CommitmentItem{
+func DfRowToCommitmentItem(df dataframe.DataFrame, rowIdx int) model.CommitmentItem {
+	return model.CommitmentItem{
 		CommitmentID:            utils.ParseInt64(utils.GetStr("Id Empenho", rowIdx, &df)),
 		CommitmentCode:          utils.GetStr("Código Empenho", rowIdx, &df),
 		ExpenseCategoryCode:     utils.GetInt16("Código Categoria de Despesa", rowIdx, &df),
@@ -121,12 +121,12 @@ func DfRowToCommitmentItem(df dataframe.DataFrame, rowIdx int) store.CommitmentI
 		UnitPrice:               utils.ParseFloat(utils.GetStr("Valor Unitário", rowIdx, &df)),
 		CurrentValue:            utils.ParseFloat(utils.GetStr("Valor Atual", rowIdx, &df)),
 		TotalPrice:              utils.ParseFloat(utils.GetStr("Valor Total", rowIdx, &df)),
-		History:                 []store.CommitmentItemsHistory{},
+		History:                 []model.CommitmentItemsHistory{},
 	}
 }
 
-func DfRowToCommitmentItemHistory(df dataframe.DataFrame, rowIdx int) store.CommitmentItemsHistory {
-	return store.CommitmentItemsHistory{
+func DfRowToCommitmentItemHistory(df dataframe.DataFrame, rowIdx int) model.CommitmentItemsHistory {
+	return model.CommitmentItemsHistory{
 		CommitmentID:   utils.ParseInt64(utils.GetStr("Id Empenho", rowIdx, &df)),
 		CommitmentCode: utils.GetStr("Código Empenho", rowIdx, &df),
 		OperationType:  utils.GetStr("Tipo Operação", rowIdx, &df),
@@ -138,8 +138,8 @@ func DfRowToCommitmentItemHistory(df dataframe.DataFrame, rowIdx int) store.Comm
 	}
 }
 
-func DfRowToPaymentImpactedCommitment(df dataframe.DataFrame, rowIdx int) store.PaymentImpactedCommitment {
-	return store.PaymentImpactedCommitment{
+func DfRowToPaymentImpactedCommitment(df dataframe.DataFrame, rowIdx int) model.PaymentImpactedCommitment {
+	return model.PaymentImpactedCommitment{
 		PaymentCode:                utils.GetStr("Código Pagamento", rowIdx, &df),
 		CommitmentCode:             utils.GetStr("Código Empenho", rowIdx, &df),
 		ExpenseNatureCodeComplete:  utils.GetInt64("Código Natureza Despesa Completa", rowIdx, &df),
@@ -151,8 +151,8 @@ func DfRowToPaymentImpactedCommitment(df dataframe.DataFrame, rowIdx int) store.
 	}
 }
 
-func DfRowToLiquidationImpactedCommitment(df dataframe.DataFrame, rowIdx int) store.LiquidationImpactedCommitment {
-	return store.LiquidationImpactedCommitment{
+func DfRowToLiquidationImpactedCommitment(df dataframe.DataFrame, rowIdx int) model.LiquidationImpactedCommitment {
+	return model.LiquidationImpactedCommitment{
 		LiquidationCode:               utils.GetStr("Código Liquidação", rowIdx, &df),
 		CommitmentCode:                utils.GetStr("Código Empenho", rowIdx, &df),
 		ExpenseNatureCodeComplete:     utils.GetInt64("Código Natureza Despesa Completa", rowIdx, &df),

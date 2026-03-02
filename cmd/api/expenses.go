@@ -4,16 +4,16 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/farxc/envelopa-transparencia/internal/response"
-	"github.com/farxc/envelopa-transparencia/internal/store"
+	"github.com/farxc/envelopa-transparencia/internal/domain/response"
+	"github.com/farxc/envelopa-transparencia/internal/domain/service"
 )
 
 type (
-	GetExpensesReportResponse     = response.APIResponse[store.BudgetExecutionReportByUnit]
-	GetExpensesSummaryResponse    = response.APIResponse[store.SummaryByUnits]
-	GetGlobalSummaryResponse      = response.APIResponse[store.GlobalSummary]
-	GetTopFavoredResponse         = response.APIResponse[[]store.TopFavored]
-	GetExpensesByCategoryResponse = response.APIResponse[[]store.ExpensesByCategory]
+	GetExpensesReportResponse     = response.APIResponse[service.BudgetExecutionReportByUnit]
+	GetExpensesSummaryResponse    = response.APIResponse[service.SummaryByUnits]
+	GetGlobalSummaryResponse      = response.APIResponse[service.GlobalSummary]
+	GetTopFavoredResponse         = response.APIResponse[[]service.TopFavored]
+	GetExpensesByCategoryResponse = response.APIResponse[[]service.ExpensesByCategory]
 )
 
 // @Summary		Get expenses summary

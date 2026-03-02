@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/farxc/envelopa-transparencia/docs"
-	"github.com/farxc/envelopa-transparencia/internal/store"
+	"github.com/farxc/envelopa-transparencia/internal/infrastructure/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"

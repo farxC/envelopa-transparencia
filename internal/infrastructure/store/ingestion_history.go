@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/farxc/envelopa-transparencia/internal/domain/model"
 	"github.com/lib/pq"
 )
 
@@ -31,7 +32,7 @@ var (
 	StatusSkipped    = "SKIPPED"
 )
 
-func (ih *IngestionHistoryStore) InsertIngestionHistory(ctx context.Context, history *IngestionHistory) error {
+func (ih *IngestionHistoryStore) InsertIngestionHistory(ctx context.Context, history *model.IngestionHistory) error {
 	query := `INSERT INTO ingestion_history (
 		reference_date,
 		source_file,
@@ -68,14 +69,14 @@ func (ih *IngestionHistoryStore) InsertIngestionHistory(ctx context.Context, his
 	return nil
 }
 
-func (ih *IngestionHistoryStore) GetLatest(ctx context.Context, limit int) ([]IngestionHistory, error) {
+func (ih *IngestionHistoryStore) GetLatest(ctx context.Context, limit int) ([]model.IngestionHistory, error) {
 	query := `
 		SELECT id, processed_at, reference_date, source_file, trigger_type, scope_type, status, processed_codes
 		FROM ingestion_history
 		ORDER BY processed_at DESC
 		LIMIT $1
 	`
-	var history []IngestionHistory
+	var history []model.IngestionHistory
 	err := ih.db.SelectContext(ctx, &history, query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get latest ingestion history: %w", err)
@@ -92,7 +93,7 @@ func (ih *IngestionHistoryStore) UpdateIngestionStatus(ctx context.Context, id i
 	return nil
 }
 
-func (ih *IngestionHistoryStore) GetHistoryInRange(ctx context.Context, startDate, endDate time.Time, codes []int64) ([]IngestionHistory, error) {
+func (ih *IngestionHistoryStore) GetHistoryInRange(ctx context.Context, startDate, endDate time.Time, codes []int64) ([]model.IngestionHistory, error) {
 	query := `
 		SELECT id, processed_at, reference_date, source_file, trigger_type, scope_type, status, processed_codes
 		FROM ingestion_history
@@ -100,7 +101,7 @@ func (ih *IngestionHistoryStore) GetHistoryInRange(ctx context.Context, startDat
 		AND processed_codes && $3
 		ORDER BY reference_date ASC, processed_at DESC
 	`
-	var history []IngestionHistory
+	var history []model.IngestionHistory
 	err := ih.db.SelectContext(ctx, &history, query, startDate, endDate, pq.Array(codes))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ingestion history in range: %w", err)

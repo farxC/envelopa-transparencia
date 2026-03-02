@@ -11,11 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/farxc/envelopa-transparencia/internal/db"
-	"github.com/farxc/envelopa-transparencia/internal/env"
-	"github.com/farxc/envelopa-transparencia/internal/logger"
-	"github.com/farxc/envelopa-transparencia/internal/store"
-	"github.com/farxc/envelopa-transparencia/internal/transparency"
+	"github.com/farxc/envelopa-transparencia/internal/application"
+	"github.com/farxc/envelopa-transparencia/internal/infrastructure/client/portal"
+	"github.com/farxc/envelopa-transparencia/internal/infrastructure/db"
+	"github.com/farxc/envelopa-transparencia/internal/infrastructure/env"
+	"github.com/farxc/envelopa-transparencia/internal/infrastructure/logger"
+	"github.com/farxc/envelopa-transparencia/internal/infrastructure/store"
 )
 
 type config struct {
@@ -150,6 +151,7 @@ func main() {
 	appLogger.Info(component, "Database connection pool established")
 
 	storage := store.NewStorage(database)
+	transparency_portal_client := portal.NewPortalClient(appLogger)
 	ctx := context.Background()
 
 	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
@@ -215,7 +217,7 @@ func main() {
 	}
 
 	// Initialize Orchestrator
-	orchestrator := transparency.NewOrchestrator(storage, appLogger, *concurrencyPtr)
+	orchestrator := application.NewOrchestrator(storage, transparency_portal_client, appLogger, *concurrencyPtr)
 
 	// 1. Sync state
 	err = orchestrator.InitializeState(ctx, init_parsed_date, end_parsed_date, codesArr)
@@ -231,7 +233,7 @@ func main() {
 	currentDate := init_parsed_date
 	for !currentDate.After(end_parsed_date) {
 		if orchestrator.ShouldProcess(currentDate) {
-			orchestrator.AddJob(transparency.IngestionJob{
+			orchestrator.AddJob(application.IngestionJob{
 				Date:           currentDate,
 				Codes:          codesArr,
 				IsManagingCode: isManagingCode,

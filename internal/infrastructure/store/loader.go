@@ -1,19 +1,18 @@
-package load
+package store
 
 import (
 	"context"
 	"time"
 
-	"github.com/farxc/envelopa-transparencia/internal/logger"
-	"github.com/farxc/envelopa-transparencia/internal/store"
-	"github.com/farxc/envelopa-transparencia/internal/transparency/types"
+	"github.com/farxc/envelopa-transparencia/internal/domain/service"
+	"github.com/farxc/envelopa-transparencia/internal/infrastructure/logger"
 )
 
-func LoadPayload(ctx context.Context, payload *types.CommitmentPayload, storage *store.Storage, appLogger *logger.Logger) error {
+func LoadPayload(ctx context.Context, payload *service.ExpensesPayload, storage *Storage, appLogger *logger.Logger) error {
 	const component = "Loader"
 	appLogger.Info(component, "Starting data load for extraction date: %s", payload.ExtractionDate)
 
-	for _, unit := range payload.UnitCommitments {
+	for _, unit := range payload.UnitsExpenses {
 		err := func() error {
 			tx, err := storage.DB.BeginTxx(ctx, nil)
 			if err != nil {

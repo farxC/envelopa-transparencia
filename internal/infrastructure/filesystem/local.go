@@ -1,4 +1,4 @@
-package files
+package filesystem
 
 import (
 	"archive/zip"
@@ -8,40 +8,40 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/farxc/envelopa-transparencia/internal/logger"
-	"github.com/farxc/envelopa-transparencia/internal/transparency/types"
+	"github.com/farxc/envelopa-transparencia/internal/domain/service"
+	"github.com/farxc/envelopa-transparencia/internal/infrastructure/logger"
 	"github.com/go-gota/gota/dataframe"
 	"golang.org/x/text/encoding/charmap"
 )
 
 type ExtractionResult struct {
 	Success   bool
-	Data      types.DataType
+	Data      service.DataType
 	OutputDir string
 }
 
-var dataTypeSuffix = map[types.DataType]string{
-	types.DespesasEmpenho:                      types.DespesasEmpenhoDataType,
-	types.DespesasItemEmpenho:                  types.DespesasItemEmpenhoDataType,
-	types.DespesasItemEmpenhoHistorico:         types.DespesasItemEmpenhoHistoricoDataType,
-	types.DespesasLiquidacao:                   types.DespesasLiquidacaoDataType,
-	types.DespesasPagamento:                    types.DespesasPagamentoDataType,
-	types.DespesasLiquidacaoEmpenhosImpactados: types.DespesasLiquidacaoEmpenhosImpactadosDataType,
-	types.DespesasPagamentoEmpenhosImpactados:  types.DespesasPagamentoEmpenhosImpactadosDataType,
-	types.DespesasPagamentoListaBancos:         types.DespesasPagamentoListaBancosDataType,
-	types.DespesasPagamentoListaFaturas:        types.DespesasPagamentoListaFaturasDataType,
-	types.DespesasPagamentoListaPrecatorios:    types.DespesasPagamentoListaPrecatoriosDataType,
+var dataserviceuffix = map[service.DataType]string{
+	service.DespesasEmpenho:                      service.DespesasEmpenhoDataType,
+	service.DespesasItemEmpenho:                  service.DespesasItemEmpenhoDataType,
+	service.DespesasItemEmpenhoHistorico:         service.DespesasItemEmpenhoHistoricoDataType,
+	service.DespesasLiquidacao:                   service.DespesasLiquidacaoDataType,
+	service.DespesasPagamento:                    service.DespesasPagamentoDataType,
+	service.DespesasLiquidacaoEmpenhosImpactados: service.DespesasLiquidacaoEmpenhosImpactadosDataType,
+	service.DespesasPagamentoEmpenhosImpactados:  service.DespesasPagamentoEmpenhosImpactadosDataType,
+	service.DespesasPagamentoListaBancos:         service.DespesasPagamentoListaBancosDataType,
+	service.DespesasPagamentoListaFaturas:        service.DespesasPagamentoListaFaturasDataType,
+	service.DespesasPagamentoListaPrecatorios:    service.DespesasPagamentoListaPrecatoriosDataType,
 }
 
-var notUsedFiles = []types.DataType{
-	types.DespesasPagamentoListaBancos,
-	types.DespesasPagamentoListaFaturas,
-	types.DespesasPagamentoListaPrecatorios,
+var notUsedFiles = []service.DataType{
+	service.DespesasPagamentoListaBancos,
+	service.DespesasPagamentoListaFaturas,
+	service.DespesasPagamentoListaPrecatorios,
 }
 
 func isFileUsed(filename string) bool {
 	for _, v := range notUsedFiles {
-		if strings.HasSuffix(filename, dataTypeSuffix[v]) {
+		if strings.HasSuffix(filename, dataserviceuffix[v]) {
 			return false
 		}
 	}
@@ -110,13 +110,13 @@ func UnzipFile(zipPath string, destDir string, appLogger *logger.Logger) Extract
 	}
 
 	appLogger.Info(component, "Extraction completed: destDir=%s extractedFiles=%d skippedFiles=%d", destDir, extractedCount, skippedCount)
-	return ExtractionResult{Success: true, Data: types.DespesasEmpenho, OutputDir: destDir}
+	return ExtractionResult{Success: true, Data: service.DespesasEmpenho, OutputDir: destDir}
 }
 
-func BuildFilesForDate(date, dir string) map[types.DataType]string {
-	m := make(map[types.DataType]string, len(dataTypeSuffix))
+func BuildFilesForDate(date, dir string) map[service.DataType]string {
+	m := make(map[service.DataType]string, len(dataserviceuffix))
 
-	for dt, suffix := range dataTypeSuffix {
+	for dt, suffix := range dataserviceuffix {
 		m[dt] = filepath.Join(dir, date+suffix)
 	}
 	return m
