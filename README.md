@@ -6,132 +6,102 @@
 
 The primary goal of this project is to "wrap" data from the Brazilian Transparency Portal, making it agile and efficient for public management. By automating the bureaucratic and often slow process of manual consultation, it enables quick search and data handling for better decision-making.
 
-## Core Flow (ETL)
+## Architecture (DDD Inspired)
 
-The project follows a structured data pipeline:
+The project follows a **Domain-Driven Design (DDD)** inspired architecture, ensuring strict separation between business rules and technical implementation details.
 
-1.  **Data Capture (Download):** Automatically fetches compressed data (ZIP files) from the Brazilian Transparency Portal for specific dates.
-2.  **Extraction (Unzip):** Extracts raw CSV files from the downloaded archives into temporary storage.
-3.  **Treatment (Transform):** 
-    *   Parses and cleans raw CSV data using high-performance dataframes.
-    *   Filters information based on specific Management Units (UG) or Management Codes.
-    *   Organizes data into a structured hierarchical format (Commitments, Liquidations, Payments).
-4.  **Ingestion (Load):** Ingests the treated and structured data into a PostgreSQL database for persistent storage and optimized querying.
+### 1. Domain Layer (`internal/domain`)
+The heart of the application, containing the "bare" business logic and entities.
+*   **Models:** Pure Go structs representing business concepts (Commitment, Liquidation, Payment).
+*   **Repository Interfaces:** Definitions of how data should be stored and retrieved.
+*   **Domain Services:** Pure business rules, such as the **Assembler**, which organizes flat entities into complex hierarchical structures.
+*   **Gateway Interfaces:** Definitions for external interactions (e.g., the Transparency Portal client).
+
+### 2. Application Layer (`internal/application`)
+Coordinates the "Use Cases" of the system.
+*   **Orchestrator:** Manages the ETL workflow (Sync state -> Fetch -> Assemble -> Load) without knowing technical details about databases or HTTP.
 
 ## Project Structure
 
-The codebase is organized into a clean and modular architecture:
+The codebase follows a clean, layered architecture:
 
-*   `cmd/`: Entry points for the application.
-    *   `api/`: The REST API server for querying ingested data.
-    *   `etl/`: The main ETL process runner.
-    *   `migrate/`: Database migration tools and SQL scripts.
-*   `internal/`: Core business logic and private packages.
-    *   `transparency/`: Orchestrates the ETL logic (Downloader, Assembler, Converter, and Query engine).
-    *   `store/`: Data access layer, including database models and repository implementations.
-    *   `db/`: Database connection and configuration.
-    *   `logger/`: Structured logging for system monitoring.
-    *   `env/`: Environment variable and configuration management.
-*   `output/`: Stores processed extraction results in JSON format.
-*   `tmp/`: Temporary workspace for downloaded ZIP files and extracted CSVs.
+*   `cmd/`: Application entry points.
+    *   `api/`: REST API server for querying transparency data.
+    *   `etl/`: CLI tool to run the ETL pipeline.
+    *   `migrate/`: Database migration utility and SQL scripts.
+*   `internal/`: Private packages containing the core logic.
+    *   `domain/`: The core business layer (Entities and Interfaces).
+        *   `model/`: Domain entities (Commitment, Liquidation, Payment).
+        *   `repository/`: Repository and Gateway interface definitions.
+        *   `service/`: Business services (Assembler, DTO definitions).
+    *   `application/`: Coordination layer.
+        *   `orchestrator.go`: Manages the high-level ETL workflow.
+    *   `infrastructure/`: External implementations and adapters.
+        *   `client/portal/`: Transparency Portal scraper, query engine, and mappers (ACL).
+        *   `store/`: PostgreSQL repository implementations and data loader.
+        *   `db/`: Database connection pooling and configuration.
+        *   `filesystem/`: Local file management (unzip, temp files).
+        *   `env/`: Environment variable and config management.
+        *   `logger/`: Structured logging system.
+    *   `response/`: Standardized API response structures.
+*   `output/`: Storage for processed extraction results (JSON).
+*   `tmp/`: Temporary workspace for ZIP downloads and CSV extractions.
+
+1.  **Orchestration:** The Application layer checks the `IngestionHistory` to see if a date needs processing.
+2.  **Data Capture:** The Infrastructure Client fetches ZIP files from the Transparency Portal.
+3.  **Anti-Corruption Layer (ACL):** Infrastructure **Mappers** translate raw CSV rows into Domain Models.
+4.  **Domain Assembly:** The **Domain Assembler** service organizes these models into a structured hierarchy (Commitments with their respective Items and Liquidations).
+5.  **Persistence:** The Infrastructure Store saves the final payload into PostgreSQL using atomic transactions.
+
+---
 
 ## API Endpoints
 
-Once data is ingested, the system provides a specialized API to access processed information:
-
 ### Documentation
-*   `GET /v1/docs/*`: Interactive Swagger UI documentation for all API endpoints.
-
-### Health
-*   `GET /v1/health`: Checks system health and database connectivity.
+*   `GET /v1/docs/*`: Interactive Swagger UI documentation.
 
 ### Expenses
-*   `GET /v1/expenses/summary`: Returns a summary of expenses by management units.
-    *   **Parameters:** `management_code` (required), `management_unit_codes`, `start_date`, `end_date`
-*   `GET /v1/expenses/summary/by-management`: Returns a global summary of expenses by management code.
-    *   **Parameters:** `management_code` (required), `start_date`, `end_date`
-*   `GET /v1/expenses/budget-execution/report`: Generates detailed budget execution reports.
-    *   **Parameters:** `management_code` (required), `management_unit_codes`, `start_date`, `end_date`
-*   `GET /v1/expenses/top-favored`: Returns the top favored entities (suppliers/contractors) based on payment values.
-    *   **Parameters:** `management_code` (required), `management_unit_codes`, `start_date`, `end_date`, `limit` (default: 10)
+*   `GET /v1/expenses/summary`: Summary by management units.
+*   `GET /v1/expenses/summary/by-management`: Global summary by management code.
+*   `GET /v1/expenses/budget-execution/report`: Detailed budget execution reports.
+*   `GET /v1/expenses/top-favored`: Top favored entities (suppliers/contractors).
 
 ### Commitments
-*   `GET /v1/commitments/`: Retrieves detailed commitment information with filtering options.
-    *   **Parameters:** `start_date`, `end_date`, `management_code`, `management_unit_codes`, `commitment_codes`
+*   `GET /v1/commitments/`: Detailed commitment information with filtering.
 
 ### Ingestion
-*   `GET /v1/ingestion/history`: Returns the history of data ingestion processes.
-    *   **Parameters:** `limit` (default: 10)
-*   `POST /v1/ingestion`: Creates a new ingestion record to track ETL execution.
+*   `GET /v1/ingestion/history`: History of data ingestion processes.
+*   `POST /v1/ingestion`: Manual creation of ingestion records.
+
+---
 
 ## Technologies Used
 
-*   **Language:** Go (Golang)
-*   **Database:** PostgreSQL
+*   **Language:** Go (Golang) 1.24+
+*   **Architecture:** Domain-Driven Design (DDD)
+*   **Database:** PostgreSQL (sqlx & golang-migrate)
 *   **Routing:** Chi Router
-*   **Documentation:** Swagger/OpenAPI
 *   **Data Processing:** Gota (Dataframes for Go)
 *   **Containerization:** Docker & Docker Compose
-*   **Migrations:** Standard SQL migrations
+
+---
 
 ## Getting Started
 
 ### Prerequisites
-
 *   Go 1.24+
 *   Docker & Docker Compose
-*   PostgreSQL
 
 ### Setup
-
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/farxc/envelopa-transparencia.git
-    cd envelopa-transparencia
-    ```
-
-2.  **Start the database:**
-    ```bash
-    docker-compose up -d
-    ```
-
-3.  **Run migrations:**
-    ```bash
-    go run cmd/migrate/main.go
-    ```
+1.  `dockercompose up --build`
+2.  `make migrate-up`
 
 ### Running the ETL Process
-
-The ETL tool is highly flexible and allows you to extract data for specific periods and organizations. You can filter data by **Management Unit (Unidade Gestora)** or **Management Code (Código de Gestão)**.
-
-#### ETL CLI Flags:
-*   `-init`: Initial date for extraction (Format: `YYYY-MM-DD`). Defaults to yesterday.
-*   `-end`: End date for extraction (Format: `YYYY-MM-DD`). Defaults to yesterday.
-*   `-codes`: Comma-separated list of numeric codes to filter.
-*   `-byManagingCode`: Boolean flag. If `true`, the system filters by **Management Code**. If `false` (default), it filters by **Management Unit (UG) Code**.
-*   `-loglevel`: Controls logging verbosity (`debug`, `info`, `warn`, `error`). Defaults to `info`.
-
-#### Examples:
-
-**1. Extracting by Management Unit (Default):**
 ```bash
 go run cmd/etl/main.go -init 2025-01-01 -end 2025-01-05 -codes "158454,158148"
 ```
 
-**2. Extracting by Management Code:**
+### Running the API
 ```bash
-go run cmd/etl/main.go -init 2025-01-01 -end 2025-01-05 -byManagingCode -codes "158454,158148"
+go run cmd/api/main.go # or 'air' for hot reload
 ```
-
-
-### Running the API process
-**Start the API:**
-```bash
-air
-```
-
-**Access API Documentation:**
-Once the API is running, you can access the interactive Swagger documentation at:
-    ```
-    http://localhost:8080/v1/docs/index.html
-    ```
