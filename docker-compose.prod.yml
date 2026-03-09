@@ -1,0 +1,56 @@
+
+name: transparencia-wrapper
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: transparencia-api
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env.production
+    environment:
+      ADDR: ":8080"
+      API_URL: "localhost:8080"
+    ports:
+      - "8080:8080"
+    networks:
+      - default
+      - saga-shared
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  db:
+    image: postgres:18-alpine
+    env_file:
+      - .env.production
+    ports:
+      - "5454:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d transparency_wrapper_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./cmd/migrate/migrations/000001_create_models.up.sql:/docker-entrypoint-initdb.d/000001_create_models.sql:ro
+      - ./cmd/migrate/migrations/000002_ingestion_history_table.up.sql:/docker-entrypoint-initdb.d/000002_ingestion_history_table.sql:ro
+      - ./cmd/migrate/migrations/000003_add_unique_constraints_for_idempotency.up.sql:/docker-entrypoint-initdb.d/000003_add_unique_constraints_for_idempotency.sql:ro
+
+volumes:
+  postgres_data:
+
+networks:
+  default:
+    driver: bridge
+  saga-shared:
+    external: true

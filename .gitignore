@@ -1,6 +1,7 @@
 tmp
 output
 *.env
+.env.*
 bin/
 .vscode
 .gemini
