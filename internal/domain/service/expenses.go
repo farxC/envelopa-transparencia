@@ -48,12 +48,14 @@ type ExpensesByCategory struct {
 }
 
 type BudgetExecutionReport struct {
-	ExpenseNatureCodeComplete string  `db:"expense_nature_code_complete" json:"expense_nature_code_complete"`
-	Subitem                   string  `db:"subitem" json:"subitem"`
-	TransactionsCount         int     `db:"transactions_count" json:"transactions_count"`
-	TotalPaidValue            float64 `db:"total_paid_value" json:"total_paid_value"`
-	AveragePaymentValue       float64 `db:"average_payment_value" json:"average_payment_value"`
-	OutstandingValuePaid      float64 `db:"outstanding_value_paid" json:"outstanding_value_paid"`
+	ExpenseNature        string  `db:"expense_nature" json:"expense_nature"`
+	Subitem              string  `db:"subitem" json:"subitem"`
+	TransactionCount     int     `db:"transaction_count" json:"transaction_count"`
+	TotalCommittedValue  float64 `db:"total_committed_value" json:"total_committed_value"`
+	TotalLiquidatedValue float64 `db:"total_liquidated_value" json:"total_liquidated_value"`
+	TotalPaidValue       float64 `db:"total_paid_value" json:"total_paid_value"`
+	AveragePaymentValue  float64 `db:"average_payment_value" json:"average_payment_value"`
+	PendingBalanceToPay  float64 `db:"pending_balance_to_pay" json:"pending_balance_to_pay"`
 }
 
 type BudgetExecutionReportByUnit map[string][]BudgetExecutionReport

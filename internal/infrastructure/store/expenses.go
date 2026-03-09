@@ -36,27 +36,66 @@ func (es *ExpensesStore) GetBudgetExecutionReport(ctx context.Context, e service
 	}
 
 	query := fmt.Sprintf(`
+	WITH AggregatedPayments AS (
+		SELECT 
+			commitment_code,
+			expense_nature_code_complete,
+			subitem,
+			COUNT(id) AS transaction_count,
+			SUM(paid_value_brl) AS total_paid_value,
+			AVG(paid_value_brl) AS average_payment_value,
+			SUM(outstanding_value_paid_brl) AS pending_balance_to_pay
+		FROM 
+			payment_impacted_commitments
+		WHERE 
+			expense_nature_code_complete IS NOT NULL
+		GROUP BY 
+			commitment_code, 
+			expense_nature_code_complete,
+			subitem
+	),
+	AggregatedLiquidations AS (
+		SELECT 
+			commitment_code,
+			SUM(liquidated_value_brl) AS total_liquidated_value
+		FROM 
+			liquidation_impacted_commitments
+		GROUP BY 
+			commitment_code
+	),
+	AggregatedCommitedItems AS (
+		SELECT 
+			commitment_code,
+			SUM(current_value) AS total_committed_value
+		FROM 
+			commitment_items  
+		GROUP BY
+			commitment_code
+	)
 	SELECT 
 		c.management_unit_code AS management_unit_code,
-		pic.expense_nature_code_complete AS expense_nature_code_complete,
-		pic.subitem,
-		COUNT(pic.id) AS transactions_count,
-		SUM(pic.paid_value_brl) AS total_paid_value,
-		ROUND(AVG(pic.paid_value_brl), 2) AS average_payment_value,
-		SUM(pic.outstanding_value_paid_brl) AS outstanding_value_paid
+		pa.expense_nature_code_complete AS expense_nature,
+		pa.subitem,
+		SUM(pa.transaction_count) AS transaction_count,
+		SUM(aci.total_committed_value) AS total_committed_value,
+		SUM(la.total_liquidated_value) AS total_liquidated_value,
+		SUM(pa.total_paid_value) AS total_paid_value,
+		ROUND(AVG(pa.average_payment_value), 2) AS average_payment_value,
+		SUM(pa.pending_balance_to_pay) AS pending_balance_to_pay
 	FROM 
-		commitments c 
+		commitments c
 	JOIN 
-		payment_impacted_commitments pic ON pic.commitment_code = c.commitment_code 
+		AggregatedPayments pa ON pa.commitment_code = c.commitment_code
+	LEFT JOIN 
+		AggregatedLiquidations la ON la.commitment_code = pa.commitment_code 
+	LEFT JOIN
+		AggregatedCommitedItems aci ON aci.commitment_code = pa.commitment_code
 	%s
-		AND pic.expense_nature_code_complete IS NOT NULL
 	GROUP BY 
 		c.management_unit_code,
-		c.management_unit_name,
-		pic.expense_nature_code_complete, 
-		pic.subitem 
+		pa.expense_nature_code_complete,
+		pa.subitem
 	ORDER BY 
-		c.management_unit_code,
 		total_paid_value DESC;
 	`, whereClause)
 
@@ -66,13 +105,15 @@ func (es *ExpensesStore) GetBudgetExecutionReport(ctx context.Context, e service
 	}
 	defer rows.Close()
 
+	// 33901801
+
 	result := make(service.BudgetExecutionReportByUnit)
 
 	for rows.Next() {
 		rowResult := &service.BudgetExecutionReport{}
 		unitGroup := ""
 
-		err := rows.Scan(&unitGroup, &rowResult.ExpenseNatureCodeComplete, &rowResult.Subitem, &rowResult.TransactionsCount, &rowResult.TotalPaidValue, &rowResult.AveragePaymentValue, &rowResult.OutstandingValuePaid)
+		err := rows.Scan(&unitGroup, &rowResult.ExpenseNature, &rowResult.Subitem, &rowResult.TransactionCount, &rowResult.TotalCommittedValue, &rowResult.TotalLiquidatedValue, &rowResult.TotalPaidValue, &rowResult.AveragePaymentValue, &rowResult.PendingBalanceToPay)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
