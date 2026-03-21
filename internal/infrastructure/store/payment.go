@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"log"
 
 	"github.com/farxc/envelopa-transparencia/internal/domain/model"
 )
@@ -104,12 +103,10 @@ func (ps *PaymentStore) InsertPayment(ctx context.Context, payment *model.Paymen
 		updated_at = EXCLUDED.updated_at
 `
 
-	result, err := ps.db.NamedExec(query, payment)
+	_, err := ps.db.NamedExec(query, payment)
 	if err != nil {
 		return err
 	}
-	rowsAffected, _ := result.RowsAffected()
-	log.Printf("Inserted %d rows into payments table", rowsAffected)
 	return nil
 }
 
@@ -146,11 +143,9 @@ func (ps *PaymentStore) InsertPaymentImpactedCommitment(ctx context.Context, pic
 		updated_at = EXCLUDED.updated_at
 	`
 
-	result, err := ps.db.NamedExec(query, pic)
+	_, err := ps.db.NamedExec(query, pic)
 	if err != nil {
 		return err
 	}
-	rowsAffected, _ := result.RowsAffected()
-	log.Printf("Inserted %d rows into payment_impacted_commitments table", rowsAffected)
 	return nil
 }

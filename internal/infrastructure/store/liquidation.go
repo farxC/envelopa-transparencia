@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"log"
 
 	"github.com/farxc/envelopa-transparencia/internal/domain/model"
 )
@@ -89,12 +88,10 @@ func (ls *LiquidationStore) InsertLiquidation(ctx context.Context, liquidation *
 		updated_at = EXCLUDED.updated_at
 	`
 
-	result, err := ls.db.NamedExec(query, liquidation)
+	_, err := ls.db.NamedExec(query, liquidation)
 	if err != nil {
 		return err
 	}
-	rowsAffected, _ := result.RowsAffected()
-	log.Printf("Inserted %d rows into liquidations table", rowsAffected)
 	return nil
 }
 
@@ -131,11 +128,9 @@ func (ls *LiquidationStore) InsertLiquidationImpactedCommitment(ctx context.Cont
 		updated_at = EXCLUDED.updated_at
 	`
 
-	result, err := ls.db.NamedExec(query, lic)
+	_, err := ls.db.NamedExec(query, lic)
 	if err != nil {
 		return err
 	}
-	rowsAffected, _ := result.RowsAffected()
-	log.Printf("Inserted %d rows into liquidation_impacted_commitments table", rowsAffected)
 	return nil
 }

@@ -18,4 +18,4 @@ migrate-down:
 
 .PHONY: gen-docs
 gen-docs:
-	@swag init -g ./api/main.go -d cmd,internal/response,internal && swag fmt
+	@swag init -g ./cmd/api/main.go --parseDependency --parseInternal && swag fmt
