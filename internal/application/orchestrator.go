@@ -41,9 +41,11 @@ type Orchestrator struct {
 	staleTimeout   time.Duration
 
 	// Internal State
-	statusMap map[string]model.IngestionHistory
-	mu        sync.RWMutex
-	wg        sync.WaitGroup
+	statusMap     map[string]model.IngestionHistory
+	mu            sync.RWMutex
+	wg            sync.WaitGroup
+	listenerWg    sync.WaitGroup
+	jobChanClosed bool
 
 	// Channels
 	jobChan    chan IngestionJob
@@ -130,19 +132,33 @@ func (o *Orchestrator) Start(ctx context.Context) {
 	}
 
 	// 2. Start Result Listener (The Feedback Loop)
+	o.listenerWg.Add(1)
 	go o.listenToResults()
 }
 
 func (o *Orchestrator) Wait() {
-	o.wg.Wait()
+	o.wg.Wait()       // wait for all workers to finish
 	close(o.resultChan)
+	o.listenerWg.Wait() // wait for the feedback loop to drain resultChan
 }
 
-func (o *Orchestrator) AddJob(job IngestionJob) {
+// AddJob sends a job to the job channel.
+// Returns false (and discards the job) if the channel is already closed.
+func (o *Orchestrator) AddJob(job IngestionJob) bool {
+	o.mu.RLock()
+	closed := o.jobChanClosed
+	o.mu.RUnlock()
+	if closed {
+		return false
+	}
 	o.jobChan <- job
+	return true
 }
 
 func (o *Orchestrator) Close() {
+	o.mu.Lock()
+	o.jobChanClosed = true
+	o.mu.Unlock()
 	close(o.jobChan)
 }
 
@@ -246,14 +262,18 @@ func (o *Orchestrator) processDay(ctx context.Context, job IngestionJob) Ingesti
 
 func (o *Orchestrator) listenToResults() {
 	const component = "Orchestrator-Feedback"
+	defer o.listenerWg.Done()
 	for result := range o.resultChan {
 		dateStr := result.Job.Date.Format(time.DateOnly)
 
 		if result.Error != nil {
 			if result.Job.Attempt < o.retryLimit && !o.shouldSkip(result.Error, result.Job) {
-				o.appLogger.Warn(component, "Job failed, queuing for retry: date=%s attempt=%d err=%v", dateStr, result.Job.Attempt, result.Error)
 				result.Job.Attempt++
-				o.AddJob(result.Job)
+				if ok := o.AddJob(result.Job); ok {
+					o.appLogger.Warn(component, "Job failed, queuing for retry: date=%s attempt=%d err=%v", dateStr, result.Job.Attempt, result.Error)
+				} else {
+					o.appLogger.Error(component, "Job failed but channel already closed, dropping retry: date=%s attempt=%d err=%v", dateStr, result.Job.Attempt, result.Error)
+				}
 			} else if o.shouldSkip(result.Error, result.Job) {
 				o.appLogger.Info(component, "Job marked as skipped: date=%s err=%v", dateStr, result.Error)
 			} else {

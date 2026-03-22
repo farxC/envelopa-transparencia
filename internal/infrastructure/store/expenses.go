@@ -77,11 +77,11 @@ func (es *ExpensesStore) GetBudgetExecutionReport(ctx context.Context, e service
 		pa.expense_nature_code_complete AS expense_nature,
 		pa.subitem,
 		SUM(pa.transaction_count) AS transaction_count,
-		SUM(aci.total_committed_value) AS total_committed_value,
-		SUM(la.total_liquidated_value) AS total_liquidated_value,
-		SUM(pa.total_paid_value) AS total_paid_value,
+		COALESCE(SUM(aci.total_committed_value), 0) AS total_committed_value,
+		COALESCE(SUM(la.total_liquidated_value), 0) AS total_liquidated_value,
+		COALESCE(SUM(pa.total_paid_value), 0) AS total_paid_value,
 		ROUND(AVG(pa.average_payment_value), 2) AS average_payment_value,
-		SUM(pa.pending_balance_to_pay) AS pending_balance_to_pay
+		COALESCE(SUM(pa.pending_balance_to_pay), 0) AS pending_balance_to_pay
 	FROM 
 		commitments c
 	JOIN 
