@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -23,18 +24,35 @@ func ParseDate(dateStr string) time.Time {
 	return time.Time{}
 }
 
-func ParseFloat(valStr string) float64 {
+func ParseFloat(valStr string) (float64, error) {
+	valStr = strings.TrimSpace(valStr)
 	if valStr == "" {
-		return 0.0
+		return 0.0, nil
 	}
-	// Remove thousands separator (.) and replace decimal separator (,) with (.)
-	cleanStr := strings.ReplaceAll(valStr, ".", "")
-	cleanStr = strings.ReplaceAll(cleanStr, ",", ".")
+
+	cleanStr := valStr
+	hasComma := strings.Contains(cleanStr, ",")
+	hasDot := strings.Contains(cleanStr, ".")
+
+	switch {
+	case hasComma && hasDot:
+		if strings.LastIndex(cleanStr, ",") > strings.LastIndex(cleanStr, ".") {
+			cleanStr = strings.ReplaceAll(cleanStr, ".", "")
+			cleanStr = strings.ReplaceAll(cleanStr, ",", ".")
+		} else {
+			cleanStr = strings.ReplaceAll(cleanStr, ",", "")
+		}
+	case hasComma:
+		cleanStr = strings.ReplaceAll(cleanStr, ",", ".")
+	case hasDot:
+		// Already using dot as decimal separator.
+	}
+
 	val, err := strconv.ParseFloat(cleanStr, 64)
 	if err != nil {
-		return 0.0
+		return 0.0, fmt.Errorf("invalid float %q: %w", valStr, err)
 	}
-	return val
+	return val, nil
 }
 
 func ParseInt64(valStr string) int64 {
