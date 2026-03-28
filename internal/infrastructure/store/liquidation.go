@@ -84,7 +84,6 @@ func (ls *LiquidationStore) InsertLiquidation(ctx context.Context, liquidation *
 		budget_plan = EXCLUDED.budget_plan,
 		budget_plan_code = EXCLUDED.budget_plan_code,
 		observation = EXCLUDED.observation,
-		inserted_at = EXCLUDED.inserted_at,
 		updated_at = EXCLUDED.updated_at
 	`
 
@@ -124,7 +123,6 @@ func (ls *LiquidationStore) InsertLiquidationImpactedCommitment(ctx context.Cont
 		registered_payables_value_brl = EXCLUDED.registered_payables_value_brl,
 		canceled_payables_value_brl = EXCLUDED.canceled_payables_value_brl,
 		outstanding_value_liquidated_brl = EXCLUDED.outstanding_value_liquidated_brl,
-		inserted_at = EXCLUDED.inserted_at,
 		updated_at = EXCLUDED.updated_at
 	`
 
@@ -133,4 +131,9 @@ func (ls *LiquidationStore) InsertLiquidationImpactedCommitment(ctx context.Cont
 		return err
 	}
 	return nil
+}
+
+func (ls *LiquidationStore) DeleteImpactedCommitments(ctx context.Context, liquidationCode string) error {
+	_, err := ls.db.ExecContext(ctx, `DELETE FROM liquidation_impacted_commitments WHERE liquidation_code = $1`, liquidationCode)
+	return err
 }

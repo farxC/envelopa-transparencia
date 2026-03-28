@@ -9,7 +9,6 @@ import (
 
 	"github.com/farxc/envelopa-transparencia/internal/domain/model"
 	"github.com/farxc/envelopa-transparencia/internal/domain/service"
-	"github.com/farxc/envelopa-transparencia/internal/infrastructure/client/portal"
 	"github.com/farxc/envelopa-transparencia/internal/infrastructure/filesystem"
 	"github.com/farxc/envelopa-transparencia/internal/infrastructure/logger"
 	"github.com/farxc/envelopa-transparencia/internal/infrastructure/store"
@@ -137,7 +136,7 @@ func (o *Orchestrator) Start(ctx context.Context) {
 }
 
 func (o *Orchestrator) Wait() {
-	o.wg.Wait()       // wait for all workers to finish
+	o.wg.Wait() // wait for all workers to finish
 	close(o.resultChan)
 	o.listenerWg.Wait() // wait for the feedback loop to drain resultChan
 }
@@ -201,8 +200,9 @@ func (o *Orchestrator) worker(ctx context.Context, wg *sync.WaitGroup) {
 		if result.Error != nil {
 			if o.shouldSkip(result.Error, job) {
 				status = store.StatusSkipped
+			} else {
+				status = store.StatusFailure
 			}
-			status = store.StatusFailure
 		}
 
 		err = o.storage.IngestionHistory.UpdateIngestionStatus(ctx, history.ID, status)
@@ -221,8 +221,7 @@ func (o *Orchestrator) processDay(ctx context.Context, job IngestionJob) Ingesti
 	// 1. Download if not downloaded
 	expected_path := "tmp/zips/despesas_" + dateCode + ".zip"
 	if _, err := os.Stat(expected_path); os.IsNotExist(err) {
-		url := portal.PortalTransparenciaURL + dateCode
-		download := o.transparencyPortalClient.FetchExpensesData(url, dateCode)
+		download := o.transparencyPortalClient.FetchExpensesData(dateCode)
 		if !download.Success {
 			return IngestionResult{Job: job, Error: fmt.Errorf("download failed")}
 		}
@@ -234,7 +233,7 @@ func (o *Orchestrator) processDay(ctx context.Context, job IngestionJob) Ingesti
 	if !extraction.Success {
 		return IngestionResult{Job: job, Error: fmt.Errorf("extraction failed")}
 	}
-	defer os.RemoveAll(outputDir) // Cleanup extracted CSVs
+	// defer os.RemoveAll(outputDir) // Cleanup extracted CSVs
 
 	// 3. Transform & Load
 	codeStrings := make([]string, len(job.Codes))
@@ -242,12 +241,16 @@ func (o *Orchestrator) processDay(ctx context.Context, job IngestionJob) Ingesti
 		codeStrings[i] = fmt.Sprintf("%d", c)
 	}
 
-	extFiles := service.OutputExtractionFiles{
-		Date:  dateCode,
-		Files: filesystem.BuildFilesForDate(dateCode, extraction.OutputDir),
+	extFiles := service.ExpensesExtractionConfig{
+		Codes:          codeStrings,
+		IsManagingCode: job.IsManagingCode,
+		Extraction: service.OutputExpensesExtractionFiles{
+			Date:  dateCode,
+			Files: filesystem.BuildFilesForDate(dateCode, extraction.OutputDir),
+		},
 	}
 
-	payload, err := o.transparencyPortalClient.ExtractExpenses(extFiles, codeStrings, job.IsManagingCode)
+	payload, err := o.transparencyPortalClient.ExtractExpenses(extFiles)
 	if err != nil {
 		return IngestionResult{Job: job, Error: err}
 	}

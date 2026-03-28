@@ -105,7 +105,6 @@ func (cs *CommitmentStore) InsertCommitment(ctx context.Context, commitment *mod
 		commitment_original_value = EXCLUDED.commitment_original_value,
 		commitment_value_converted_to_brl = EXCLUDED.commitment_value_converted_to_brl,
 		conversion_value_used = EXCLUDED.conversion_value_used,
-		inserted_at = EXCLUDED.inserted_at,
 		updated_at = EXCLUDED.updated_at
 	`
 
@@ -181,9 +180,8 @@ func (cs *CommitmentStore) InsertCommitmentItem(ctx context.Context, item *model
 		sequential = EXCLUDED.sequential,
 		unit_price = EXCLUDED.unit_price,
 		current_value = EXCLUDED.current_value,
-		current_price = EXCLUDED.current_price,
+		current_price = commitment_items.current_price,
 		total_price = EXCLUDED.total_price,
-		inserted_at = EXCLUDED.inserted_at,
 		updated_at = EXCLUDED.updated_at
 		
 	`
@@ -228,7 +226,6 @@ func (cs *CommitmentStore) InsertCommitmentItemHistory(ctx context.Context, hist
 		item_unit_price = EXCLUDED.item_unit_price,
 		item_total_price = EXCLUDED.item_total_price,
 		operation_date = EXCLUDED.operation_date,
-		inserted_at = EXCLUDED.inserted_at,
 		updated_at = EXCLUDED.updated_at
 	`
 
@@ -236,6 +233,18 @@ func (cs *CommitmentStore) InsertCommitmentItemHistory(ctx context.Context, hist
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+func (cs *CommitmentStore) DeleteCommitmentChildren(ctx context.Context, commitmentCode string) error {
+	if _, err := cs.db.ExecContext(ctx, `DELETE FROM commitment_items_history WHERE commitment_code = $1`, commitmentCode); err != nil {
+		return err
+	}
+
+	if _, err := cs.db.ExecContext(ctx, `DELETE FROM commitment_items WHERE commitment_code = $1`, commitmentCode); err != nil {
+		return err
+	}
+
 	return nil
 }
 

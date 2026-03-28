@@ -149,3 +149,8 @@ func (ps *PaymentStore) InsertPaymentImpactedCommitment(ctx context.Context, pic
 	}
 	return nil
 }
+
+func (ps *PaymentStore) DeleteImpactedCommitments(ctx context.Context, paymentCode string) error {
+	_, err := ps.db.ExecContext(ctx, `DELETE FROM payment_impacted_commitments WHERE payment_code = $1`, paymentCode)
+	return err
+}
