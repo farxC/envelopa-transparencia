@@ -58,17 +58,18 @@ type CommitmentItems struct {
 	ItemsDf        dataframe.DataFrame
 }
 
-type OutputExtractionFiles struct {
+type OutputExpensesExtractionFiles struct {
 	Date  string
 	Files map[DataType]string
 }
 
 type UnitsExpenses struct {
-	UgCode       string              `json:"ug_code"`
-	UgName       string              `json:"ug_name"`
-	Commitments  []model.Commitment  `json:"commitments"`
-	Liquidations []model.Liquidation `json:"liquidations"`
-	Payments     []model.Payment     `json:"payments"`
+	UgCode                     string                            `json:"ug_code"`
+	UgName                     string                            `json:"ug_name"`
+	Commitments                []model.Commitment                `json:"commitments"`
+	Liquidations               []model.Liquidation               `json:"liquidations"`
+	Payments                   []model.Payment                   `json:"payments"`
+	PaymentImpactedCommitments []model.PaymentImpactedCommitment `json:"payment_impacted_commitments"`
 }
 
 type ExpensesPayload struct {

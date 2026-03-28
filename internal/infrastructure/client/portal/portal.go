@@ -21,9 +21,9 @@ type transparencyPortalClient struct {
 	client  *http.Client
 }
 
-var PortalTransparenciaURL = "https://portaldatransparencia.gov.br/download-de-dados/despesas/"
+var PortalTransparenciaURL = "https://portaldatransparencia.gov.br/download-de-dados/"
 
-func NewPortalClient(logger *logger.Logger) service.TransparencyPortalClient {
+func NewTransparencyClient(logger *logger.Logger) service.TransparencyPortalClient {
 	return &transparencyPortalClient{
 		logger:  logger,
 		baseUrl: PortalTransparenciaURL,
@@ -32,18 +32,106 @@ func NewPortalClient(logger *logger.Logger) service.TransparencyPortalClient {
 
 }
 
-func (c *transparencyPortalClient) FetchExpensesData(downloadUrl string, date string) service.DownloadResult {
-	const component = "Downloader"
-	output_path := "tmp/zips/despesas_" + date + ".zip"
+type MatchColumn string
 
-	c.logger.Debug(component, "Starting download for date=%s url=%s", date, downloadUrl)
+const (
+	MatchByManagingCode       MatchColumn = "Código Gestão"
+	MatchByManagementUnitCode MatchColumn = "Código Unidade Gestora"
+)
+
+func (c *transparencyPortalClient) ExtractExpensesExecution(cfg service.ExpensesExecutionExtractionConfig) (*[]service.UnitExpenseExecution, error) {
+	var units_expenses_executions []service.UnitExpenseExecution
+	ee_df, err := filesystem.OpenFileAndDecode(cfg.Extraction.File)
+	if err != nil {
+		return nil, err
+	}
+	var match_column MatchColumn
+	if cfg.IsManagingCode {
+		match_column = MatchByManagingCode
+	} else {
+		match_column = MatchByManagementUnitCode
+	}
+	filtered_ee := FindRowsSync(ee_df, service.DespesasExecucao, cfg.Codes, string(match_column))
+
+	for i := 0; i < filtered_ee.Nrow(); i++ {
+		expense_execution, err := DfRowToExpenseExecution(filtered_ee, i)
+		if err != nil {
+			return nil, fmt.Errorf("failed to map expense execution row %d: %w", i, err)
+		}
+		uee := service.UnitExpenseExecution{
+			UgCode:           expense_execution.ManagementUnitCode,
+			UgName:           expense_execution.ManagementUnitName,
+			ExpenseExecution: expense_execution,
+		}
+		units_expenses_executions = append(units_expenses_executions, uee)
+	}
+
+	return &units_expenses_executions, nil
+}
+
+func (c *transparencyPortalClient) FetchExpensesExecution(month, year string) service.DownloadResult {
+	const component = "Downloader"
+	url := c.baseUrl + "despesas-execucao/" + year + month
+	output_path := "tmp/zips/execution/" + year + month + "_despesas.zip"
+
+	c.logger.Debug(component, "Starting download for month=%s year=%s url=%s", month, year, url)
 
 	c.client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		req.Header.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3")
 		return nil
 	}
 	// Create a new request with a custom User-Agent header
-	req, err := http.NewRequest(http.MethodGet, downloadUrl, nil)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		c.logger.Error(component, "Failed to create HTTP request: month=%s year=%s error=%v", month, year, err)
+		return service.DownloadResult{Success: false}
+	}
+
+	resp, err := c.client.Do(req)
+
+	if err != nil {
+		c.logger.Error(component, "HTTP request failed: month=%s year=%s error=%v", month, year, err)
+		return service.DownloadResult{Success: false}
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Warn(component, "Non-OK HTTP response: month=%s year=%s status=%s statusCode=%d", month, year, resp.Status, resp.StatusCode)
+		return service.DownloadResult{Success: false}
+	}
+
+	out, err := os.Create(output_path)
+
+	if err != nil {
+		c.logger.Error(component, "Failed to create output file: month=%s year=%s path=%s error=%v", month, year, output_path, err)
+		return service.DownloadResult{Success: false}
+	}
+	defer out.Close()
+
+	bytesWritten, err := io.Copy(out, resp.Body)
+	if err != nil {
+		c.logger.Error(component, "Failed to write data to file: month=%s year=%s error=%v", month, year, err)
+		return service.DownloadResult{Success: false}
+	}
+
+	c.logger.Info(component, "Download completed: month=%s year=%s path=%s size=%d bytes", month, year, output_path, bytesWritten)
+	return service.DownloadResult{Success: true, OutputPath: output_path}
+}
+
+func (c *transparencyPortalClient) FetchExpensesData(date string) service.DownloadResult {
+	component := "Downloader"
+	url := c.baseUrl + "despesas/" + date
+	output_path := "tmp/zips/despesas_" + date + ".zip"
+
+	c.logger.Debug(component, "Starting download for date=%s url=%s", date, url)
+
+	c.client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		req.Header.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3")
+		return nil
+	}
+	// Create a new request with a custom User-Agent header
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		c.logger.Error(component, "Failed to create HTTP request: date=%s error=%v", date, err)
 		return service.DownloadResult{Success: false}
@@ -81,17 +169,17 @@ func (c *transparencyPortalClient) FetchExpensesData(downloadUrl string, date st
 	return service.DownloadResult{Success: true, OutputPath: output_path}
 }
 
-func (c *transparencyPortalClient) ExtractExpenses(extraction service.OutputExtractionFiles, codes []string, isManagingCode bool) (*service.ExpensesPayload, error) {
-	const component = "DataExtractor"
+func (c *transparencyPortalClient) ExtractExpenses(cfg service.ExpensesExtractionConfig) (*service.ExpensesPayload, error) {
 	var wg sync.WaitGroup
+	component := "DataExtractor"
 
-	extractionDate, err := time.Parse("20060102", extraction.Date)
+	extractionDate, err := time.Parse("20060102", cfg.Extraction.Date)
 	if err != nil {
 		return nil, fmt.Errorf("invalid extraction date format: %v", err)
 	}
 	formattedDate := extractionDate.Format("2006-01-02")
 
-	c.logger.Info(component, "Starting data extraction: date=%s codesCount=%d", formattedDate, len(codes))
+	c.logger.Info(component, "Starting data extraction: date=%s codesCount=%d", formattedDate, len(cfg.Codes))
 
 	// Channel for collect DataFrames based in Unit Codes
 	ugMatches := make(chan service.MatchingDataframe, 3)
@@ -112,10 +200,10 @@ func (c *transparencyPortalClient) ExtractExpenses(extraction service.OutputExtr
 
 	c.logger.Debug(component, "Phase 1: Filtering by UG codes: date=%s", extractionDate)
 	// First, find all Commitments based in Unit Codes
-	if isManagingCode {
-		FilterExtractionByColumn(extraction, hasUgCodeAsColumn, codes, "Código Gestão", ugMatches, &wg, c.logger)
+	if cfg.IsManagingCode {
+		FilterExtractionByColumn(cfg.Extraction, hasUgCodeAsColumn, cfg.Codes, "Código Gestão", ugMatches, &wg, c.logger)
 	} else {
-		FilterExtractionByColumn(extraction, hasUgCodeAsColumn, codes, "Código Unidade Gestora", ugMatches, &wg, c.logger)
+		FilterExtractionByColumn(cfg.Extraction, hasUgCodeAsColumn, cfg.Codes, "Código Unidade Gestora", ugMatches, &wg, c.logger)
 	}
 
 	wg.Wait()
@@ -158,31 +246,49 @@ func (c *transparencyPortalClient) ExtractExpenses(extraction service.OutputExtr
 	var liImpacts []model.LiquidationImpactedCommitment
 	if liquidacoesDf.Nrow() > 0 {
 		ugsLiquidations := liquidacoesDf.Col("Código Liquidação").Records()
-		if p, ok := extraction.Files[service.DespesasLiquidacaoEmpenhosImpactados]; ok {
+		if p, ok := cfg.Extraction.Files[service.DespesasLiquidacaoEmpenhosImpactados]; ok {
 			df, err := filesystem.OpenFileAndDecode(p)
 			if err != nil {
 				return nil, err
 			}
 			matchedDf := FindRowsSync(df, service.DespesasLiquidacaoEmpenhosImpactados, ugsLiquidations, "Código Liquidação")
 			for i := 0; i < matchedDf.Nrow(); i++ {
-				liImpacts = append(liImpacts, DfRowToLiquidationImpactedCommitment(matchedDf, i))
+				imp, err := DfRowToLiquidationImpactedCommitment(matchedDf, i)
+				if err != nil {
+					return nil, fmt.Errorf("failed to map liquidation impacted commitment row %d: %w", i, err)
+				}
+				liImpacts = append(liImpacts, imp)
 			}
 		}
 	}
 
 	// Extract impacted commitments for payments
 	var paImpacts []model.PaymentImpactedCommitment
-	if pagamentosDf.Nrow() > 0 {
-		ugsPayments := pagamentosDf.Col("Código Pagamento").Records()
-		if p, ok := extraction.Files[service.DespesasPagamentoEmpenhosImpactados]; ok {
+	if empenhosDf.Nrow() > 0 {
+		ugsCommitments := empenhosDf.Col("Código Empenho").Records()
+		if p, ok := cfg.Extraction.Files[service.DespesasPagamentoEmpenhosImpactados]; ok {
 			df, err := filesystem.OpenFileAndDecode(p)
 			if err != nil {
 				return nil, err
 			}
-			matchedDf := FindRowsSync(df, service.DespesasPagamentoEmpenhosImpactados, ugsPayments, "Código Pagamento")
-			for i := 0; i < matchedDf.Nrow(); i++ {
-				paImpacts = append(paImpacts, DfRowToPaymentImpactedCommitment(matchedDf, i))
+
+			matchedDf := FindRowsSync(df, service.DespesasPagamentoEmpenhosImpactados, ugsCommitments, "Código Empenho")
+			if matchedDf.Error() != nil {
+				return nil, fmt.Errorf("failed to filter payment impacted commitments: %w", matchedDf.Error())
 			}
+			c.logger.Info(component, "Payment impacts matched: date=%s commitments=%d impactedRows=%d", extractionDate, len(ugsCommitments), matchedDf.Nrow())
+			if matchedDf.Nrow() == 0 {
+				c.logger.Warn(component, "No impacted commitments matched for payment commitments: date=%s commitments=%d", extractionDate, len(ugsCommitments))
+			}
+			for i := 0; i < matchedDf.Nrow(); i++ {
+				imp, err := DfRowToPaymentImpactedCommitment(matchedDf, i)
+				if err != nil {
+					return nil, fmt.Errorf("failed to map payment impacted commitment row %d: %w", i, err)
+				}
+				paImpacts = append(paImpacts, imp)
+			}
+		} else {
+			c.logger.Warn(component, "Payment impacted commitments file not found: date=%s", extractionDate)
 		}
 	}
 
@@ -196,7 +302,7 @@ func (c *transparencyPortalClient) ExtractExpenses(extraction service.OutputExtr
 		c.logger.Debug(component, "Phase 2: Extracting commitment items: date=%s commitmentCodes=%d", extractionDate, len(ugsCommitments))
 
 		// Extract commitment items and history
-		FilterExtractionByColumn(extraction, hasCommitmentCodeAsColumn,
+		FilterExtractionByColumn(cfg.Extraction, hasCommitmentCodeAsColumn,
 			ugsCommitments, "Código Empenho", commitmentMatches, &wg, c.logger)
 		wg.Wait()
 		close(commitmentMatches)
@@ -211,11 +317,19 @@ func (c *transparencyPortalClient) ExtractExpenses(extraction service.OutputExtr
 			switch extracted.Type {
 			case service.DespesasItemEmpenho:
 				for i := 0; i < transformedDf.Nrow(); i++ {
-					items = append(items, DfRowToCommitmentItem(transformedDf, i))
+					item, err := DfRowToCommitmentItem(transformedDf, i)
+					if err != nil {
+						return nil, fmt.Errorf("failed to map commitment item row %d: %w", i, err)
+					}
+					items = append(items, item)
 				}
 			case service.DespesasItemEmpenhoHistorico:
 				for i := 0; i < transformedDf.Nrow(); i++ {
-					history = append(history, DfRowToCommitmentItemHistory(transformedDf, i))
+					entry, err := DfRowToCommitmentItemHistory(transformedDf, i)
+					if err != nil {
+						return nil, fmt.Errorf("failed to map commitment item history row %d: %w", i, err)
+					}
+					history = append(history, entry)
 				}
 			}
 		}
@@ -229,7 +343,11 @@ func (c *transparencyPortalClient) ExtractExpenses(extraction service.OutputExtr
 	// Map raw rows to models
 	var commitments []model.Commitment
 	for i := 0; i < empenhosDf.Nrow(); i++ {
-		commitments = append(commitments, DfRowToCommitment(empenhosDf, i))
+		commitment, err := DfRowToCommitment(empenhosDf, i)
+		if err != nil {
+			return nil, fmt.Errorf("failed to map commitment row %d: %w", i, err)
+		}
+		commitments = append(commitments, commitment)
 	}
 
 	var liquidations []model.Liquidation
@@ -239,7 +357,11 @@ func (c *transparencyPortalClient) ExtractExpenses(extraction service.OutputExtr
 
 	var payments []model.Payment
 	for i := 0; i < pagamentosDf.Nrow(); i++ {
-		payments = append(payments, DfRowToPayment(pagamentosDf, i))
+		payment, err := DfRowToPayment(pagamentosDf, i)
+		if err != nil {
+			return nil, fmt.Errorf("failed to map payment row %d: %w", i, err)
+		}
+		payments = append(payments, payment)
 	}
 
 	// Build the hierarchical structure using the agnostic domain service

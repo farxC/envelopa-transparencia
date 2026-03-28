@@ -6,6 +6,8 @@ type DownloadResult struct {
 }
 
 type TransparencyPortalClient interface {
-	FetchExpensesData(downloadUrl string, date string) DownloadResult
-	ExtractExpenses(extraction OutputExtractionFiles, codes []string, isManagingCode bool) (*ExpensesPayload, error)
+	FetchExpensesData(date string) DownloadResult
+	ExtractExpenses(cfg ExpensesExtractionConfig) (*ExpensesPayload, error)
+	FetchExpensesExecution(month, year string) DownloadResult
+	ExtractExpensesExecution(cfg ExpensesExecutionExtractionConfig) (*[]UnitExpenseExecution, error)
 }

@@ -103,7 +103,7 @@ func createDirIfNotExist(dirPath string) error {
 
 func createTmpDirs(appLogger *logger.Logger) error {
 	const component = "TempDirCreator"
-	dirs := []string{"tmp", "tmp/zips", "tmp/data"}
+	dirs := []string{"tmp", "tmp/zips", "tmp/data", "tmp/zips/expenses_execution", "tmp/zips/expenses"}
 	for _, dir := range dirs {
 		if _, err := os.Stat(dir); os.IsNotExist(err) {
 			err := os.Mkdir(dir, os.ModePerm)
@@ -151,7 +151,7 @@ func main() {
 	appLogger.Info(component, "Database connection pool established")
 
 	storage := store.NewStorage(database)
-	transparency_portal_client := portal.NewPortalClient(appLogger)
+	transparency_portal_client := portal.NewTransparencyClient(appLogger)
 	ctx := context.Background()
 
 	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
@@ -207,12 +207,6 @@ func main() {
 	end_parsed_date, err := time.Parse(time.DateOnly, end_date)
 	if err != nil {
 		appLogger.Fatal(component, "Invalid end date format: date=%s error=%v", end_date, err)
-		return
-	}
-
-	err = createDirIfNotExist("output")
-	if err != nil {
-		appLogger.Fatal(component, "Failed to create output directory: error=%v", err)
 		return
 	}
 

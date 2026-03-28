@@ -34,6 +34,13 @@ func LoadPayload(ctx context.Context, payload *service.ExpensesPayload, storage 
 					return err
 				}
 
+				if store, ok := txStorage.Commitment.(*CommitmentStore); ok {
+					if err := store.DeleteCommitmentChildren(ctx, commitment.CommitmentCode); err != nil {
+						appLogger.Error(component, "Failed to reconcile commitment children for %s: %v", commitment.CommitmentCode, err)
+						return err
+					}
+				}
+
 				// Process Commitment Items
 				for _, item := range commitment.Items {
 					item.InsertedAt = now
@@ -41,6 +48,7 @@ func LoadPayload(ctx context.Context, payload *service.ExpensesPayload, storage 
 
 					if err := txStorage.Commitment.InsertCommitmentItem(ctx, &item); err != nil {
 						appLogger.Error(component, "Failed to insert commitment item for %s: %v", commitment.CommitmentCode, err)
+						return err
 					}
 
 					for _, hist := range item.History {
@@ -49,6 +57,7 @@ func LoadPayload(ctx context.Context, payload *service.ExpensesPayload, storage 
 
 						if err := txStorage.Commitment.InsertCommitmentItemHistory(ctx, &hist); err != nil {
 							appLogger.Error(component, "Failed to insert commitment history for %s: %v", commitment.CommitmentCode, err)
+							return err
 						}
 					}
 				}
@@ -65,12 +74,20 @@ func LoadPayload(ctx context.Context, payload *service.ExpensesPayload, storage 
 					return err
 				}
 
+				if store, ok := txStorage.Liquidation.(*LiquidationStore); ok {
+					if err := store.DeleteImpactedCommitments(ctx, liquidation.LiquidationCode); err != nil {
+						appLogger.Error(component, "Failed to reconcile liquidation impacts for %s: %v", liquidation.LiquidationCode, err)
+						return err
+					}
+				}
+
 				for _, imp := range liquidation.ImpactedCommitments {
 					imp.InsertedAt = time.Now()
 					imp.UpdatedAt = time.Now()
 
 					if err := txStorage.Liquidation.InsertLiquidationImpactedCommitment(ctx, &imp); err != nil {
 						appLogger.Error(component, "Failed to insert liquidation impacted commitment %s: %v", imp.CommitmentCode, err)
+						return err
 					}
 				}
 			}
@@ -86,13 +103,21 @@ func LoadPayload(ctx context.Context, payload *service.ExpensesPayload, storage 
 					return err
 				}
 
-				for _, imp := range payment.ImpactedCommitments {
-					imp.InsertedAt = time.Now()
-					imp.UpdatedAt = time.Now()
-
-					if err := txStorage.Payment.InsertPaymentImpactedCommitment(ctx, &imp); err != nil {
-						appLogger.Error(component, "Failed to insert payment impacted commitment %s: %v", imp.CommitmentCode, err)
+				if store, ok := txStorage.Payment.(*PaymentStore); ok {
+					if err := store.DeleteImpactedCommitments(ctx, payment.PaymentCode); err != nil {
+						appLogger.Error(component, "Failed to reconcile payment impacts for %s: %v", payment.PaymentCode, err)
+						return err
 					}
+				}
+			}
+
+			for _, imp := range unit.PaymentImpactedCommitments {
+				imp.InsertedAt = time.Now()
+				imp.UpdatedAt = time.Now()
+
+				if err := txStorage.Payment.InsertPaymentImpactedCommitment(ctx, &imp); err != nil {
+					appLogger.Error(component, "Failed to insert payment impacted commitment %s: %v", imp.CommitmentCode, err)
+					return err
 				}
 			}
 			return tx.Commit()

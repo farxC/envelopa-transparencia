@@ -44,10 +44,10 @@ func AssembleExpensesData(
 		liImpactMap[imp.LiquidationCode] = append(liImpactMap[imp.LiquidationCode], imp)
 	}
 
-	// 4. Group Payment Impacts by PaymentCode
-	paImpactMap := make(map[string][]model.PaymentImpactedCommitment)
-	for _, imp := range paImpacts {
-		paImpactMap[imp.PaymentCode] = append(paImpactMap[imp.PaymentCode], imp)
+	// 4. Index Commitments by CommitmentCode for payment impact unit lookup
+	commitmentMap := make(map[string]model.Commitment)
+	for _, commitment := range commitments {
+		commitmentMap[commitment.CommitmentCode] = commitment
 	}
 
 	// Helper to get or create unit entry
@@ -55,11 +55,12 @@ func AssembleExpensesData(
 		key := fmt.Sprintf("%d", ugCode)
 		if _, exists := unitsMap[key]; !exists {
 			unitsMap[key] = &UnitsExpenses{
-				UgCode:       key,
-				UgName:       ugName,
-				Commitments:  []model.Commitment{},
-				Liquidations: []model.Liquidation{},
-				Payments:     []model.Payment{},
+				UgCode:                     key,
+				UgName:                     ugName,
+				Commitments:                []model.Commitment{},
+				Liquidations:               []model.Liquidation{},
+				Payments:                   []model.Payment{},
+				PaymentImpactedCommitments: []model.PaymentImpactedCommitment{},
 			}
 		}
 		if unitsMap[key].UgName == "" && ugName != "" {
@@ -68,7 +69,7 @@ func AssembleExpensesData(
 		return unitsMap[key]
 	}
 
-	// 5. Build Hierarchy
+	// 6. Build Hierarchy
 	for _, c := range commitments {
 		if its, ok := itemsMap[c.CommitmentCode]; ok {
 			c.Items = its
@@ -86,11 +87,17 @@ func AssembleExpensesData(
 	}
 
 	for _, p := range payments {
-		if imps, ok := paImpactMap[p.PaymentCode]; ok {
-			p.ImpactedCommitments = imps
-		}
 		unit := getOrCreateUnit(p.ManagementUnitCode, p.ManagementUnitName)
 		unit.Payments = append(unit.Payments, p)
+	}
+
+	for _, imp := range paImpacts {
+		commitment, ok := commitmentMap[imp.CommitmentCode]
+		if !ok {
+			continue
+		}
+		unit := getOrCreateUnit(commitment.ManagementUnitCode, commitment.ManagementUnitName)
+		unit.PaymentImpactedCommitments = append(unit.PaymentImpactedCommitments, imp)
 	}
 
 	return unitsMap

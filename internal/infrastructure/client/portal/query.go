@@ -222,7 +222,7 @@ func FindRowsSync(df dataframe.DataFrame, dfType service.DataType, codes []strin
 		filter,
 	)
 
-	if df.Error() != nil {
+	if matchingRows.Error() != nil {
 		return dataframe.DataFrame{}
 	}
 	if matchingRows.Nrow() > 0 {
@@ -236,7 +236,7 @@ func FindRowsSync(df dataframe.DataFrame, dfType service.DataType, codes []strin
 	return dataframe.DataFrame{}
 }
 
-func FilterExtractionByColumn(extraction service.OutputExtractionFiles, targetDataservice []service.DataType, codes []string, matchColumn string, chToRelease chan service.MatchingDataframe, wg *sync.WaitGroup, appLogger *logger.Logger) {
+func FilterExtractionByColumn(extraction service.OutputExpensesExtractionFiles, targetDataservice []service.DataType, codes []string, matchColumn string, chToRelease chan service.MatchingDataframe, wg *sync.WaitGroup, appLogger *logger.Logger) {
 	const component = "ExtractionFilter"
 	appLogger.Info(component, "Starting extraction filter: column=%s", matchColumn)
 	for _, dt := range targetDataservice {

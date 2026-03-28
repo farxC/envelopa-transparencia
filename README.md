@@ -69,6 +69,7 @@ The codebase follows a clean, layered architecture:
 ### Commitments
 *   `GET /v1/commitments/`: Detailed commitment information with filtering.
 
+
 ### Ingestion
 *   `GET /v1/ingestion/history`: History of data ingestion processes.
 *   `POST /v1/ingestion`: Manual creation of ingestion records.
@@ -98,7 +99,7 @@ The codebase follows a clean, layered architecture:
 
 ### Running the ETL Process
 ```bash
-go run cmd/etl/main.go -init 2025-01-01 -end 2025-01-05 -codes "158454,158148"
+go run cmd/etl/main.go -init 2025-01-01 -end 2026-03-22 -byManagingCode=true -codes='26421,26415'
 ```
 
 ### Running the API
