@@ -19,6 +19,8 @@ type Storage struct {
 
 	Expenses repository.ExpensesInterface
 
+	ExpensesExecution repository.ExpensesExecutionInterface
+
 	DB *sqlx.DB
 }
 
@@ -34,21 +36,23 @@ type GenericQueryer interface {
 
 func (s *Storage) WithTx(tx *sqlx.Tx) *Storage {
 	return &Storage{
-		Commitment:       &CommitmentStore{db: tx},
-		Liquidation:      &LiquidationStore{db: tx},
-		Payment:          &PaymentStore{db: tx},
-		IngestionHistory: &IngestionHistoryStore{db: tx},
-		Expenses:         &ExpensesStore{db: tx},
+		Commitment:        &CommitmentStore{db: tx},
+		Liquidation:       &LiquidationStore{db: tx},
+		Payment:           &PaymentStore{db: tx},
+		IngestionHistory:  &IngestionHistoryStore{db: tx},
+		Expenses:          &ExpensesStore{db: tx},
+		ExpensesExecution: &ExpensesExecutionStore{db: tx},
 	}
 }
 
 func NewStorage(db *sqlx.DB) *Storage {
 	return &Storage{
-		Commitment:       &CommitmentStore{db: db},
-		Liquidation:      &LiquidationStore{db: db},
-		Payment:          &PaymentStore{db: db},
-		IngestionHistory: &IngestionHistoryStore{db: db},
-		Expenses:         &ExpensesStore{db: db},
-		DB:               db,
+		Commitment:        &CommitmentStore{db: db},
+		Liquidation:       &LiquidationStore{db: db},
+		Payment:           &PaymentStore{db: db},
+		IngestionHistory:  &IngestionHistoryStore{db: db},
+		Expenses:          &ExpensesStore{db: db},
+		ExpensesExecution: &ExpensesExecutionStore{db: db},
+		DB:                db,
 	}
 }

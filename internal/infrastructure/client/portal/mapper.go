@@ -300,7 +300,7 @@ func DfRowToExpenseExecution(df dataframe.DataFrame, rowIdx int) (model.ExpenseE
 		ManagementUnitName:          utils.GetStr("Nome Unidade Gestora", rowIdx, &df),
 		ManagementCode:              utils.GetInt32("Código Gestão", rowIdx, &df),
 		ManagementName:              utils.GetStr("Nome Gestão", rowIdx, &df),
-		ActionCode:                  utils.GetInt32("Código Ação", rowIdx, &df),
+		ActionCode:                  utils.GetStr("Código Ação", rowIdx, &df),
 		ActionName:                  utils.GetStr("Nome Ação", rowIdx, &df),
 		BudgetPlanCode:              utils.GetInt32("Código Plano Orçamentário", rowIdx, &df),
 		BudgetPlanName:              utils.GetStr("Plano Orçamentário", rowIdx, &df),

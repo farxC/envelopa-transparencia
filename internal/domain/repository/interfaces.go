@@ -32,6 +32,10 @@ type IngestionHistoryInterface interface {
 	GetHistoryInRange(ctx context.Context, startDate, endDate time.Time, codes []int64) ([]model.IngestionHistory, error)
 }
 
+type ExpensesExecutionInterface interface {
+	InsertExpenseExecution(ctx context.Context, execution *model.ExpenseExecution) error
+}
+
 type ExpensesInterface interface {
 	GetBudgetExecutionReport(ctx context.Context, e service.ExpensesFilter) (service.BudgetExecutionReportByUnit, error)
 	GetBudgetExecutionSummary(ctx context.Context, e service.ExpensesFilter) (service.SummaryByUnits, error)

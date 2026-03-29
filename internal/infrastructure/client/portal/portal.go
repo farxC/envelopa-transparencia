@@ -19,15 +19,17 @@ type transparencyPortalClient struct {
 	logger  *logger.Logger
 	baseUrl string
 	client  *http.Client
+	debug   bool
 }
 
 var PortalTransparenciaURL = "https://portaldatransparencia.gov.br/download-de-dados/"
 
-func NewTransparencyClient(logger *logger.Logger) service.TransparencyPortalClient {
+func NewTransparencyClient(logger *logger.Logger, debug bool) service.TransparencyPortalClient {
 	return &transparencyPortalClient{
 		logger:  logger,
 		baseUrl: PortalTransparenciaURL,
 		client:  &http.Client{},
+		debug:   debug,
 	}
 
 }
@@ -39,7 +41,7 @@ const (
 	MatchByManagementUnitCode MatchColumn = "Código Unidade Gestora"
 )
 
-func (c *transparencyPortalClient) ExtractExpensesExecution(cfg service.ExpensesExecutionExtractionConfig) (*[]service.UnitExpenseExecution, error) {
+func (c *transparencyPortalClient) ExtractExpensesExecution(cfg service.ExpensesExecutionExtractionConfig) (*service.ExpensesExecutionPayload, error) {
 	var units_expenses_executions []service.UnitExpenseExecution
 	ee_df, err := filesystem.OpenFileAndDecode(cfg.Extraction.File)
 	if err != nil {
@@ -51,8 +53,8 @@ func (c *transparencyPortalClient) ExtractExpensesExecution(cfg service.Expenses
 	} else {
 		match_column = MatchByManagementUnitCode
 	}
-	filtered_ee := FindRowsSync(ee_df, service.DespesasExecucao, cfg.Codes, string(match_column))
-
+	filtered_ee := FindRowsSync(ee_df, service.DespesasExecucao, cfg.Codes, string(match_column), c.debug)
+	fmt.Printf("Filtered expense execution rows: %d\n", filtered_ee.Nrow())
 	for i := 0; i < filtered_ee.Nrow(); i++ {
 		expense_execution, err := DfRowToExpenseExecution(filtered_ee, i)
 		if err != nil {
@@ -65,14 +67,17 @@ func (c *transparencyPortalClient) ExtractExpensesExecution(cfg service.Expenses
 		}
 		units_expenses_executions = append(units_expenses_executions, uee)
 	}
-
-	return &units_expenses_executions, nil
+	payload := service.ExpensesExecutionPayload{
+		ExtractionDate: cfg.Extraction.Month + "/" + cfg.Extraction.Year,
+		UnitsExpenses:  units_expenses_executions,
+	}
+	return &payload, nil
 }
 
 func (c *transparencyPortalClient) FetchExpensesExecution(month, year string) service.DownloadResult {
 	const component = "Downloader"
 	url := c.baseUrl + "despesas-execucao/" + year + month
-	output_path := "tmp/zips/execution/" + year + month + "_despesas.zip"
+	output_path := "tmp/zips/expenses_execution/" + year + month + "_Despesas.zip"
 
 	c.logger.Debug(component, "Starting download for month=%s year=%s url=%s", month, year, url)
 
@@ -122,7 +127,7 @@ func (c *transparencyPortalClient) FetchExpensesExecution(month, year string) se
 func (c *transparencyPortalClient) FetchExpensesData(date string) service.DownloadResult {
 	component := "Downloader"
 	url := c.baseUrl + "despesas/" + date
-	output_path := "tmp/zips/despesas_" + date + ".zip"
+	output_path := "tmp/zips/expenses/despesas_" + date + ".zip"
 
 	c.logger.Debug(component, "Starting download for date=%s url=%s", date, url)
 
@@ -251,7 +256,7 @@ func (c *transparencyPortalClient) ExtractExpenses(cfg service.ExpensesExtractio
 			if err != nil {
 				return nil, err
 			}
-			matchedDf := FindRowsSync(df, service.DespesasLiquidacaoEmpenhosImpactados, ugsLiquidations, "Código Liquidação")
+			matchedDf := FindRowsSync(df, service.DespesasLiquidacaoEmpenhosImpactados, ugsLiquidations, "Código Liquidação", c.debug)
 			for i := 0; i < matchedDf.Nrow(); i++ {
 				imp, err := DfRowToLiquidationImpactedCommitment(matchedDf, i)
 				if err != nil {
@@ -272,7 +277,7 @@ func (c *transparencyPortalClient) ExtractExpenses(cfg service.ExpensesExtractio
 				return nil, err
 			}
 
-			matchedDf := FindRowsSync(df, service.DespesasPagamentoEmpenhosImpactados, ugsCommitments, "Código Empenho")
+			matchedDf := FindRowsSync(df, service.DespesasPagamentoEmpenhosImpactados, ugsCommitments, "Código Empenho", c.debug)
 			if matchedDf.Error() != nil {
 				return nil, fmt.Errorf("failed to filter payment impacted commitments: %w", matchedDf.Error())
 			}

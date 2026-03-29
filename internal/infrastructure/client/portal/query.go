@@ -2,7 +2,10 @@ package portal
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/farxc/envelopa-transparencia/internal/domain/service"
 	"github.com/farxc/envelopa-transparencia/internal/infrastructure/filesystem"
@@ -150,6 +153,39 @@ var columnsForDataType = map[service.DataType][]string{
 		"Valor Unitário Item",
 		"Valor Total Item",
 	},
+	service.DespesasExecucao: {
+		"Ano e mês do lançamento",
+		"Código Órgão Superior",
+		"Nome Órgão Superior",
+		"Código Órgão Subordinado",
+		"Nome Órgão Subordinado",
+		"Código Unidade Gestora",
+		"Nome Unidade Gestora",
+		"Código Gestão",
+		"Nome Gestão",
+		"Código Ação",
+		"Nome Ação",
+		"Código Plano Orçamentário",
+		"Plano Orçamentário",
+		"UF",
+		"Município",
+		"Código Autor Emenda",
+		"Nome Autor Emenda",
+		"Código Categoria Econômica",
+		"Nome Categoria Econômica",
+		"Código Grupo de Despesa",
+		"Nome Grupo de Despesa",
+		"Código Elemento de Despesa",
+		"Nome Elemento de Despesa",
+		"Código Modalidade da Despesa",
+		"Modalidade da Despesa",
+		"Valor Empenhado (R$)",
+		"Valor Liquidado (R$)",
+		"Valor Pago (R$)",
+		"Valor Restos a Pagar Inscritos (R$)",
+		"Valor Restos a Pagar Cancelado (R$)",
+		"Valor Restos a Pagar Pagos (R$)",
+	},
 }
 
 // Validates if the data type is supported for transformation
@@ -207,10 +243,31 @@ func FindRows(df dataframe.DataFrame, dfType service.DataType, codes []string, c
 	}
 }
 
+// debugSaveDf writes df to tmp/debug/<dfType>_<sanitizedColumn>_<timestamp>.csv.
+// It is a no-op when debug is false, the dataframe is empty, or the file cannot be created.
+func debugSaveDf(df dataframe.DataFrame, dfType service.DataType, codeColumn string, debug bool) {
+	if !debug || df.Nrow() == 0 {
+		return
+	}
+	_ = os.MkdirAll("tmp/debug", os.ModePerm)
+	col := strings.NewReplacer(" ", "_", "/", "-").Replace(codeColumn)
+	name := fmt.Sprintf("tmp/debug/%d_%s_%s.csv", dfType, col, time.Now().Format("20060102_150405"))
+	f, err := os.Create(name)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	err = df.WriteCSV(f, dataframe.WriteHeader(true))
+	if err != nil {
+		fmt.Println("Error writing CSV:", err)
+		return
+	}
+}
+
 /*
 Finds rows in the dataframe that match the given codes in the specified column synchronously.
 */
-func FindRowsSync(df dataframe.DataFrame, dfType service.DataType, codes []string, codeColumn string) dataframe.DataFrame {
+func FindRowsSync(df dataframe.DataFrame, dfType service.DataType, codes []string, codeColumn string, debug bool) dataframe.DataFrame {
 
 	filter := dataframe.F{
 		Colname:    codeColumn,
@@ -228,8 +285,10 @@ func FindRowsSync(df dataframe.DataFrame, dfType service.DataType, codes []strin
 	if matchingRows.Nrow() > 0 {
 		matchingDf, err := SelectDataframeColumns(matchingRows, dfType)
 		if err != nil {
+			fmt.Println("Error selecting columns:", err)
 			return dataframe.DataFrame{}
 		}
+		debugSaveDf(matchingDf, dfType, codeColumn, debug)
 		return matchingDf
 	}
 
