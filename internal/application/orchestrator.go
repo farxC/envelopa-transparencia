@@ -3,295 +3,228 @@ package application
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/farxc/envelopa-transparencia/internal/domain/model"
-	"github.com/farxc/envelopa-transparencia/internal/domain/service"
-	"github.com/farxc/envelopa-transparencia/internal/infrastructure/filesystem"
+	"github.com/farxc/envelopa-transparencia/internal/domain/repository"
 	"github.com/farxc/envelopa-transparencia/internal/infrastructure/logger"
-	"github.com/farxc/envelopa-transparencia/internal/infrastructure/store"
 )
 
-type IngestionJob struct {
-	Date           time.Time
-	Codes          []int64
-	Attempt        int
-	IsManagingCode bool
-	Trigger        string
-	SourceFile     string
+const (
+	statusInProgress = "IN_PROGRESS"
+	statusSuccess    = "SUCCESS"
+	statusFailure    = "FAILURE"
+	statusSkipped    = "SKIPPED"
+)
+
+// jobEnvelope wraps a job with its retry attempt count.
+// The attempt count is tracked internally by the orchestrator
+// so job types remain free of orchestration concerns.
+type jobEnvelope[J any] struct {
+	job     J
+	attempt int
 }
 
-type IngestionResult struct {
-	Job   IngestionJob
-	ID    int64
-	Error error
+type jobResult[J any] struct {
+	envelope jobEnvelope[J]
+	id       int64
+	err      error
 }
 
-type Orchestrator struct {
-	storage                  *store.Storage
-	appLogger                *logger.Logger
-	transparencyPortalClient service.TransparencyPortalClient
+type Orchestrator[J any] struct {
+	pipeline    Pipeline[J]
+	historyRepo repository.IngestionHistoryInterface
+	appLogger   *logger.Logger
 
-	// Settings
 	maxConcurrency int
 	retryLimit     int
 	staleTimeout   time.Duration
 
-	// Internal State
 	statusMap     map[string]model.IngestionHistory
 	mu            sync.RWMutex
 	wg            sync.WaitGroup
 	listenerWg    sync.WaitGroup
 	jobChanClosed bool
 
-	// Channels
-	jobChan    chan IngestionJob
-	resultChan chan IngestionResult
+	jobChan    chan jobEnvelope[J]
+	resultChan chan jobResult[J]
 }
 
-func NewOrchestrator(storage *store.Storage, transparencyPortalClient service.TransparencyPortalClient, appLogger *logger.Logger, concurrency int) *Orchestrator {
-	return &Orchestrator{
-		storage:                  storage,
-		transparencyPortalClient: transparencyPortalClient,
-		appLogger:                appLogger,
-		maxConcurrency:           concurrency,
-		retryLimit:               3,
-		staleTimeout:             30 * time.Minute,
-		statusMap:                make(map[string]model.IngestionHistory),
-		jobChan:                  make(chan IngestionJob, 100),
-		resultChan:               make(chan IngestionResult, 100),
+func NewOrchestrator[J any](
+	pipeline Pipeline[J],
+	historyRepo repository.IngestionHistoryInterface,
+	appLogger *logger.Logger,
+	concurrency int,
+) *Orchestrator[J] {
+	return &Orchestrator[J]{
+		pipeline:       pipeline,
+		historyRepo:    historyRepo,
+		appLogger:      appLogger,
+		maxConcurrency: concurrency,
+		retryLimit:     3,
+		staleTimeout:   30 * time.Minute,
+		statusMap:      make(map[string]model.IngestionHistory),
+		jobChan:        make(chan jobEnvelope[J], 100),
+		resultChan:     make(chan jobResult[J], 100),
 	}
 }
 
-// InitializeState performs the bulk check to identify what needs to be processed
-func (o *Orchestrator) InitializeState(ctx context.Context, startDate, endDate time.Time, codes []int64) error {
+// InitializeState loads existing ingestion history from DB to populate the
+// in-memory status map, so already-processed jobs are skipped on startup.
+func (o *Orchestrator[J]) InitializeState(ctx context.Context, startDate, endDate time.Time, codes []int64) error {
 	const component = "Orchestrator-Init"
-	o.appLogger.Info(component, "Syncing initial state from database: range=%s to %s", startDate.Format(time.DateOnly), endDate.Format(time.DateOnly))
+	start, end := o.pipeline.HistoryRange(startDate, endDate)
+	o.appLogger.Info(component, "Syncing state from DB: range=%s to %s", start.Format(time.DateOnly), end.Format(time.DateOnly))
 
-	history, err := o.storage.IngestionHistory.GetHistoryInRange(ctx, startDate, endDate, codes)
+	history, err := o.historyRepo.GetHistoryInRange(ctx, start, end, codes)
 	if err != nil {
 		return fmt.Errorf("failed to load history: %w", err)
 	}
 
 	o.mu.Lock()
 	defer o.mu.Unlock()
-
 	for _, h := range history {
-		dateKey := h.ReferenceDate.Format(time.DateOnly)
-		// We only care about the latest record for each date in the map
-		if existing, ok := o.statusMap[dateKey]; !ok || h.ProcessedAt.After(existing.ProcessedAt) {
-			o.statusMap[dateKey] = h
+		key := o.pipeline.HistoryKey(h)
+		if existing, ok := o.statusMap[key]; !ok || h.ProcessedAt.After(existing.ProcessedAt) {
+			o.statusMap[key] = h
 		}
 	}
 
-	o.appLogger.Info(component, "State sync complete: uniqueDatesFound=%d", len(o.statusMap))
+	o.appLogger.Info(component, "State sync complete: uniqueKeysFound=%d", len(o.statusMap))
 	return nil
 }
 
-func (o *Orchestrator) shouldSkip(err error, job IngestionJob) bool {
-	return err.Error() == fmt.Sprintf("no matching data found for extraction date %s", job.Date.Format("2006-01-02")) || err.Error() == "dataframe is empty"
-}
-
-func (o *Orchestrator) ShouldProcess(date time.Time) bool {
-	dateKey := date.Format(time.DateOnly)
+// ShouldProcess reports whether the job identified by key needs to be processed.
+func (o *Orchestrator[J]) ShouldProcess(key string) bool {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 
-	h, ok := o.statusMap[dateKey]
+	h, ok := o.statusMap[key]
 	if !ok {
-		return true // Never tried
+		return true
 	}
-
-	if h.Status == store.StatusInProgress {
-		isLaterThanTimeout := time.Since(h.ProcessedAt) > o.staleTimeout
-		return isLaterThanTimeout
+	switch h.Status {
+	case statusInProgress:
+		return time.Since(h.ProcessedAt) > o.staleTimeout
+	case statusSkipped, statusSuccess:
+		return false
+	default:
+		return true
 	}
-
-	if h.Status == store.StatusSkipped {
-		return false // Explicitly marked as skipped
-	}
-
-	if h.Status == store.StatusSuccess {
-		return false // Already done
-	}
-
-	return true
 }
 
-func (o *Orchestrator) Start(ctx context.Context) {
+func (o *Orchestrator[J]) Start(ctx context.Context) {
 	const component = "Orchestrator"
 	o.appLogger.Info(component, "Starting orchestrator: concurrency=%d", o.maxConcurrency)
-
-	// 1. Start Workers
 	for i := 0; i < o.maxConcurrency; i++ {
 		o.wg.Add(1)
 		go o.worker(ctx, &o.wg)
 	}
-
-	// 2. Start Result Listener (The Feedback Loop)
 	o.listenerWg.Add(1)
 	go o.listenToResults()
 }
 
-func (o *Orchestrator) Wait() {
-	o.wg.Wait() // wait for all workers to finish
+func (o *Orchestrator[J]) Wait() {
+	o.wg.Wait()
 	close(o.resultChan)
-	o.listenerWg.Wait() // wait for the feedback loop to drain resultChan
+	o.listenerWg.Wait()
 }
 
-// AddJob sends a job to the job channel.
-// Returns false (and discards the job) if the channel is already closed.
-func (o *Orchestrator) AddJob(job IngestionJob) bool {
+func (o *Orchestrator[J]) AddJob(job J) bool {
 	o.mu.RLock()
 	closed := o.jobChanClosed
 	o.mu.RUnlock()
 	if closed {
 		return false
 	}
-	o.jobChan <- job
+	o.jobChan <- jobEnvelope[J]{job: job, attempt: 0}
 	return true
 }
 
-func (o *Orchestrator) Close() {
+func (o *Orchestrator[J]) Close() {
 	o.mu.Lock()
 	o.jobChanClosed = true
 	o.mu.Unlock()
 	close(o.jobChan)
 }
 
-func (o *Orchestrator) worker(ctx context.Context, wg *sync.WaitGroup) {
+func (o *Orchestrator[J]) worker(ctx context.Context, wg *sync.WaitGroup) {
 	const component = "Worker"
 	defer wg.Done()
 
-	for job := range o.jobChan {
-		dateStr := job.Date.Format(time.DateOnly)
-		o.appLogger.Debug(component, "Processing job: date=%s attempt=%d", dateStr, job.Attempt)
+	for envelope := range o.jobChan {
+		key := o.pipeline.StatusKey(envelope.job)
+		o.appLogger.Debug(component, "Processing job: key=%s attempt=%d", key, envelope.attempt)
 
-		// A. Create IN_PROGRESS record
-		scope := store.ScopeTypeManagingUnit
-		if job.IsManagingCode {
-			scope = store.ScopeTypeManagement
-		}
-
-		history := &model.IngestionHistory{
-			ReferenceDate:  job.Date,
-			TriggerType:    job.Trigger,
-			ScopeType:      scope,
-			Status:         store.StatusInProgress,
-			SourceFile:     fmt.Sprintf("despesas_%s.zip", job.Date.Format("20060102")),
-			ProcessedCodes: job.Codes,
-		}
-
-		err := o.storage.IngestionHistory.InsertIngestionHistory(ctx, history)
-		if err != nil {
-			o.appLogger.Error(component, "Failed to create IN_PROGRESS record: date=%s err=%v", dateStr, err)
-			o.resultChan <- IngestionResult{Job: job, Error: err}
+		// Build and persist the IN_PROGRESS audit record before any ETL work.
+		history := o.pipeline.BuildHistoryRecord(envelope.job)
+		history.Status = statusInProgress
+		if err := o.historyRepo.InsertIngestionHistory(ctx, history); err != nil {
+			o.appLogger.Error(component, "Failed to create IN_PROGRESS record: key=%s err=%v", key, err)
+			o.resultChan <- jobResult[J]{envelope: envelope, err: err}
 			continue
 		}
 
-		// B. Perform Extraction & Load
-		result := o.processDay(ctx, job)
-		result.ID = history.ID
+		// Delegate all extraction logic to the pipeline.
+		etlErr := o.pipeline.Execute(ctx, envelope.job)
 
-		// C. Finalize Status
-		status := store.StatusSuccess
-		if result.Error != nil {
-			if o.shouldSkip(result.Error, job) {
-				status = store.StatusSkipped
+		// Determine final status and update the audit record.
+		status := statusSuccess
+		if etlErr != nil {
+			if o.pipeline.ShouldSkip(etlErr, envelope.job) {
+				status = statusSkipped
 			} else {
-				status = store.StatusFailure
+				status = statusFailure
 			}
 		}
-
-		err = o.storage.IngestionHistory.UpdateIngestionStatus(ctx, history.ID, status)
-		if err != nil {
-			o.appLogger.Error(component, "Failed to update final status: id=%d status=%s err=%v", history.ID, status, err)
+		if err := o.historyRepo.UpdateIngestionStatus(ctx, history.ID, status); err != nil {
+			o.appLogger.Error(component, "Failed to update status: id=%d status=%s err=%v", history.ID, status, err)
 		}
 
-		o.resultChan <- result
+		o.resultChan <- jobResult[J]{envelope: envelope, id: history.ID, err: etlErr}
 	}
 }
 
-func (o *Orchestrator) processDay(ctx context.Context, job IngestionJob) IngestionResult {
-	const component = "Processor"
-	dateCode := job.Date.Format("20060102")
-
-	// 1. Download if not downloaded
-	expected_path := "tmp/zips/despesas_" + dateCode + ".zip"
-	if _, err := os.Stat(expected_path); os.IsNotExist(err) {
-		download := o.transparencyPortalClient.FetchExpensesData(dateCode)
-		if !download.Success {
-			return IngestionResult{Job: job, Error: fmt.Errorf("download failed")}
-		}
-	}
-
-	// 2. Extract
-	outputDir := "tmp/data/despesas_" + dateCode
-	extraction := filesystem.UnzipFile(expected_path, outputDir, o.appLogger)
-	if !extraction.Success {
-		return IngestionResult{Job: job, Error: fmt.Errorf("extraction failed")}
-	}
-	// defer os.RemoveAll(outputDir) // Cleanup extracted CSVs
-
-	// 3. Transform & Load
-	codeStrings := make([]string, len(job.Codes))
-	for i, c := range job.Codes {
-		codeStrings[i] = fmt.Sprintf("%d", c)
-	}
-
-	extFiles := service.ExpensesExtractionConfig{
-		Codes:          codeStrings,
-		IsManagingCode: job.IsManagingCode,
-		Extraction: service.OutputExpensesExtractionFiles{
-			Date:  dateCode,
-			Files: filesystem.BuildFilesForDate(dateCode, extraction.OutputDir),
-		},
-	}
-
-	payload, err := o.transparencyPortalClient.ExtractExpenses(extFiles)
-	if err != nil {
-		return IngestionResult{Job: job, Error: err}
-	}
-
-	err = store.LoadPayload(ctx, payload, o.storage, o.appLogger)
-	if err != nil {
-		return IngestionResult{Job: job, Error: err}
-	}
-
-	return IngestionResult{Job: job, Error: nil}
-}
-
-func (o *Orchestrator) listenToResults() {
+func (o *Orchestrator[J]) listenToResults() {
 	const component = "Orchestrator-Feedback"
 	defer o.listenerWg.Done()
-	for result := range o.resultChan {
-		dateStr := result.Job.Date.Format(time.DateOnly)
 
-		if result.Error != nil {
-			if result.Job.Attempt < o.retryLimit && !o.shouldSkip(result.Error, result.Job) {
-				result.Job.Attempt++
-				if ok := o.AddJob(result.Job); ok {
-					o.appLogger.Warn(component, "Job failed, queuing for retry: date=%s attempt=%d err=%v", dateStr, result.Job.Attempt, result.Error)
+	for res := range o.resultChan {
+		key := o.pipeline.StatusKey(res.envelope.job)
+
+		if res.err != nil {
+			if res.envelope.attempt < o.retryLimit && !o.pipeline.ShouldSkip(res.err, res.envelope.job) {
+				res.envelope.attempt++
+				if ok := o.enqueue(res.envelope); ok {
+					o.appLogger.Warn(component, "Job failed, queuing for retry: key=%s attempt=%d err=%v", key, res.envelope.attempt, res.err)
 				} else {
-					o.appLogger.Error(component, "Job failed but channel already closed, dropping retry: date=%s attempt=%d err=%v", dateStr, result.Job.Attempt, result.Error)
+					o.appLogger.Error(component, "Job failed but channel closed, dropping retry: key=%s err=%v", key, res.err)
 				}
-			} else if o.shouldSkip(result.Error, result.Job) {
-				o.appLogger.Info(component, "Job marked as skipped: date=%s err=%v", dateStr, result.Error)
+			} else if o.pipeline.ShouldSkip(res.err, res.envelope.job) {
+				o.appLogger.Info(component, "Job marked as skipped: key=%s err=%v", key, res.err)
 			} else {
-				o.appLogger.Error(component, "Job failed after max retries: date=%s err=%v", dateStr, result.Error)
+				o.appLogger.Error(component, "Job failed after max retries: key=%s err=%v", key, res.err)
 			}
 		} else {
-			o.appLogger.Info(component, "Job completed successfully: date=%s", dateStr)
-
+			o.appLogger.Info(component, "Job completed successfully: key=%s", key)
 			o.mu.Lock()
-			o.statusMap[dateStr] = model.IngestionHistory{
-				Status:        store.StatusSuccess,
-				ReferenceDate: result.Job.Date,
-				ProcessedAt:   time.Now(),
+			o.statusMap[key] = model.IngestionHistory{
+				Status:      statusSuccess,
+				ProcessedAt: time.Now(),
 			}
 			o.mu.Unlock()
 		}
 	}
+}
+
+func (o *Orchestrator[J]) enqueue(envelope jobEnvelope[J]) bool {
+	o.mu.RLock()
+	closed := o.jobChanClosed
+	o.mu.RUnlock()
+	if closed {
+		return false
+	}
+	o.jobChan <- envelope
+	return true
 }
