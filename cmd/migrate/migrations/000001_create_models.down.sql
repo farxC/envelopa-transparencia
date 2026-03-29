@@ -1,4 +1,5 @@
 -- Drop tables in reverse order of creation (respecting foreign key dependencies)
+DROP TABLE IF EXISTS expenses_execution;
 DROP TABLE IF EXISTS liquidation_impacted_commitments;
 DROP TABLE IF EXISTS liquidations;
 DROP TABLE IF EXISTS payment_impacted_commitments;
