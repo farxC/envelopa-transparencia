@@ -28,3 +28,8 @@ type UnitExpenseExecution struct {
 	UgName           string                 `json:"ug_name"`
 	ExpenseExecution model.ExpenseExecution `json:"expense_execution"`
 }
+
+type ExpensesExecutionPayload struct {
+	ExtractionDate string
+	UnitsExpenses  []UnitExpenseExecution
+}

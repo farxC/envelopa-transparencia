@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/farxc/envelopa-transparencia/internal/application"
+	"github.com/farxc/envelopa-transparencia/internal/domain/model"
 	"github.com/farxc/envelopa-transparencia/internal/infrastructure/client/portal"
 	"github.com/farxc/envelopa-transparencia/internal/infrastructure/db"
 	"github.com/farxc/envelopa-transparencia/internal/infrastructure/env"
@@ -91,19 +92,9 @@ func (m *MemoryMonitor) Stop() ProfilerStats {
 	return m.stats
 }
 
-func createDirIfNotExist(dirPath string) error {
-	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
-		err := os.Mkdir(dirPath, os.ModePerm)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func createTmpDirs(appLogger *logger.Logger) error {
 	const component = "TempDirCreator"
-	dirs := []string{"tmp", "tmp/zips", "tmp/data", "tmp/zips/expenses_execution", "tmp/zips/expenses"}
+	dirs := []string{"tmp", "tmp/zips", "tmp/data", "tmp/zips/expenses_execution", "tmp/zips/expenses", "tmp/data/expenses_execution", "tmp/data/expenses"}
 	for _, dir := range dirs {
 		if _, err := os.Stat(dir); os.IsNotExist(err) {
 			err := os.Mkdir(dir, os.ModePerm)
@@ -151,7 +142,7 @@ func main() {
 	appLogger.Info(component, "Database connection pool established")
 
 	storage := store.NewStorage(database)
-	transparency_portal_client := portal.NewTransparencyClient(appLogger)
+	loader := store.NewStorageLoader(storage, appLogger)
 	ctx := context.Background()
 
 	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
@@ -159,10 +150,13 @@ func main() {
 	endDatePtr := flag.String("end", yesterday, "End date for data extraction")
 	byManagingCodePtr := flag.Bool("byManagingCode", false, "Extract data by managing code or managing unit code")
 	triggerPtr := flag.String("trigger", "MANUAL", "Trigger source: MANUAL, SCHEDULED")
+	kindPtr := flag.String("kind", "expenses_execution", "Kind of data to extract: expenses_execution, expenses")
 	codesPtr := flag.String("codes", "158454,158148,158341,158342,158343,158345,158376,158332,158533,158635,158636", "Comma-separated list of Unit Codes to extract")
 	logLevelPtr := flag.String("loglevel", "info", "Log level: debug, info, warn, error")
 	concurrencyPtr := flag.Int("concurrency", 10, "Number of concurrent workers")
+	debugPtr := flag.Bool("debug", false, "Debug mode: saves matched dataframes to CSV and bypasses ingestion history checks")
 	flag.Parse()
+	transparency_portal_client := portal.NewTransparencyClient(appLogger, *debugPtr)
 
 	// Set log level based on flag
 	switch strings.ToLower(*logLevelPtr) {
@@ -210,38 +204,74 @@ func main() {
 		return
 	}
 
-	// Initialize Orchestrator
-	orchestrator := application.NewOrchestrator(storage, transparency_portal_client, appLogger, *concurrencyPtr)
+	// Initialize and run the orchestrator for the requested extraction kind.
+	switch *kindPtr {
 
-	// 1. Sync state
-	err = orchestrator.InitializeState(ctx, init_parsed_date, end_parsed_date, codesArr)
-	if err != nil {
-		appLogger.Fatal(component, "Failed to initialize orchestrator state: error=%v", err)
-		return
-	}
+	case "expenses":
+		pipeline := application.NewExpensesDailyPipeline(transparency_portal_client, loader, appLogger)
+		orch := application.NewOrchestrator(pipeline, storage.IngestionHistory, appLogger, *concurrencyPtr)
 
-	// 2. Start workers
-	orchestrator.Start(ctx)
+		start, end := pipeline.HistoryRange(init_parsed_date, end_parsed_date)
+		if err = orch.InitializeState(ctx, start, end, codesArr); err != nil {
+			appLogger.Fatal(component, "Failed to initialize orchestrator state: error=%v", err)
+			return
+		}
 
-	// 3. Queue jobs
-	currentDate := init_parsed_date
-	for !currentDate.After(end_parsed_date) {
-		if orchestrator.ShouldProcess(currentDate) {
-			orchestrator.AddJob(application.IngestionJob{
-				Date:           currentDate,
+		orch.Start(ctx)
+
+		for d := init_parsed_date; !d.After(end_parsed_date); d = d.AddDate(0, 0, 1) {
+			job := model.ExpensesDailyJob{
+				Date:           d,
 				Codes:          codesArr,
 				IsManagingCode: isManagingCode,
 				Trigger:        *triggerPtr,
-			})
-		} else {
-			appLogger.Info(component, "Skipping date (already processed or active): date=%s", currentDate.Format(time.DateOnly))
+			}
+			if *debugPtr || orch.ShouldProcess(pipeline.StatusKey(job)) {
+				orch.AddJob(job)
+			} else {
+				appLogger.Info(component, "Skipping date (already processed or active): date=%s", d.Format(time.DateOnly))
+			}
 		}
-		currentDate = currentDate.AddDate(0, 0, 1)
-	}
 
-	// 4. Wait for completion
-	orchestrator.Close()
-	orchestrator.Wait()
+		orch.Close()
+		orch.Wait()
+
+	case "expenses_execution":
+		pipeline := application.NewExpensesExecutionPipeline(transparency_portal_client, loader, appLogger)
+		orch := application.NewOrchestrator(pipeline, storage.IngestionHistory, appLogger, *concurrencyPtr)
+
+		start, end := pipeline.HistoryRange(init_parsed_date, end_parsed_date)
+		if err = orch.InitializeState(ctx, start, end, codesArr); err != nil {
+			appLogger.Fatal(component, "Failed to initialize orchestrator state: error=%v", err)
+			return
+		}
+
+		orch.Start(ctx)
+
+		startMonth := time.Date(init_parsed_date.Year(), init_parsed_date.Month(), 1, 0, 0, 0, 0, init_parsed_date.Location())
+		endMonth := time.Date(end_parsed_date.Year(), end_parsed_date.Month(), 1, 0, 0, 0, 0, end_parsed_date.Location())
+		for m := startMonth; !m.After(endMonth); m = m.AddDate(0, 1, 0) {
+			job := model.ExpensesExecutionJob{
+				Year:           m.Format("2006"),
+				Month:          m.Format("01"),
+				Codes:          codesArr,
+				IsManagingCode: isManagingCode,
+				Trigger:        *triggerPtr,
+			}
+			if *debugPtr || orch.ShouldProcess(pipeline.StatusKey(job)) {
+				orch.AddJob(job)
+			} else {
+				appLogger.Info(component, "Skipping month (already processed or active): month=%s-%s", job.Year, job.Month)
+			}
+		}
+
+		orch.Close()
+		orch.Wait()
+
+	default:
+		appLogger.Fatal(component, "Unknown extraction kind: kind=%s (valid: expenses, expenses_execution)", *kindPtr)
+		return
+	}
 
 	timeTaken := time.Since(starting_time)
 	appLogger.Info(component, "Application completed successfully: duration=%.2f minutes", timeTaken.Minutes())
