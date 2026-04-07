@@ -67,6 +67,9 @@ func (app *application) mount() http.Handler {
 			r.Get("/budget-execution/report", app.handleGetBudgetExecutionReport)
 			r.Get("/top-favored", app.handleGetTopFavored)
 		})
+		r.Route("/budget-execution", func(r chi.Router) {
+			r.Get("/", app.handleGetBudgetExecution)
+		})
 		r.Route("/commitments", func(r chi.Router) {
 			r.Get("/", app.handleGetCommitmentsInformation)
 		})

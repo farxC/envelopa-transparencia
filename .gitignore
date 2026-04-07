@@ -7,7 +7,7 @@ bin/
 .gemini
 .specify
 docs/
-
+.DS_Store
 ARCHITECTURE_DESIGN.md
 SYSTEM_DESIGN.md
 ARCH-DESIGN.MD
