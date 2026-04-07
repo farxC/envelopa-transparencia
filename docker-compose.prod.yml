@@ -1,6 +1,19 @@
 
 name: transparencia-wrapper
 services:
+  migrate:
+    image: migrate/migrate
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env.production
+    volumes:
+      - ./cmd/migrate/migrations:/migrations
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["migrate -path /migrations -database $DB_ADDR up"]
+    restart: on-failure
+
   api:
     build:
       context: .
@@ -9,6 +22,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     env_file:
       - .env.production
     environment:
@@ -42,9 +57,6 @@ services:
       start_period: 10s
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./cmd/migrate/migrations/000001_create_models.up.sql:/docker-entrypoint-initdb.d/000001_create_models.sql:ro
-      - ./cmd/migrate/migrations/000002_ingestion_history_table.up.sql:/docker-entrypoint-initdb.d/000002_ingestion_history_table.sql:ro
-      - ./cmd/migrate/migrations/000003_add_unique_constraints_for_idempotency.up.sql:/docker-entrypoint-initdb.d/000003_add_unique_constraints_for_idempotency.sql:ro
 
 volumes:
   postgres_data:
