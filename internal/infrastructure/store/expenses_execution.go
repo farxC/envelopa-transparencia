@@ -121,10 +121,16 @@ func (s *ExpensesExecutionStore) GetBudgetExecution(ctx context.Context, e servi
 		argIndex++
 	}
 
-	if !e.StartDate.IsZero() && !e.EndDate.IsZero() {
-		whereClause += fmt.Sprintf(" AND year_and_month >= $%d AND year_and_month <= $%d", argIndex, argIndex+1)
-		args = append(args, e.StartDate.Format("2006-01"), e.EndDate.Format("2006-01"))
-		argIndex += 2
+	if !e.StartDate.IsZero() {
+		whereClause += fmt.Sprintf(" AND year_and_month >= $%d", argIndex)
+		args = append(args, e.StartDate.Format("2006/01"))
+		argIndex++
+	}
+
+	if !e.EndDate.IsZero() {
+		whereClause += fmt.Sprintf(" AND year_and_month <= $%d", argIndex)
+		args = append(args, e.EndDate.Format("2006/01"))
+		argIndex++
 	}
 
 	query := fmt.Sprintf(`
