@@ -1,15 +1,10 @@
 package utils
 
-import "github.com/go-gota/gota/dataframe"
+import (
+	"slices"
 
-func containsString(slice []string, s string) bool {
-	for _, v := range slice {
-		if v == s {
-			return true
-		}
-	}
-	return false
-}
+	"github.com/go-gota/gota/dataframe"
+)
 
 func GetStr(col string, rowIdx int, df *dataframe.DataFrame) string {
 
@@ -17,7 +12,7 @@ func GetStr(col string, rowIdx int, df *dataframe.DataFrame) string {
 		return ""
 	}
 
-	if containsString(df.Names(), col) {
+	if slices.Contains(df.Names(), col) {
 		return df.Col(col).Elem(rowIdx).String()
 	}
 	return ""
@@ -27,7 +22,7 @@ func GetInt(col string, rowIdx int, df *dataframe.DataFrame) int {
 	if df == nil {
 		return 0
 	}
-	if idx := df.Names(); containsString(idx, col) {
+	if idx := df.Names(); slices.Contains(idx, col) {
 		val, err := df.Col(col).Elem(rowIdx).Int()
 		if err != nil {
 			return 0
@@ -41,7 +36,7 @@ func GetInt16(col string, rowIdx int, df *dataframe.DataFrame) int16 {
 	if df == nil {
 		return 0
 	}
-	if idx := df.Names(); containsString(idx, col) {
+	if idx := df.Names(); slices.Contains(idx, col) {
 		val, err := df.Col(col).Elem(rowIdx).Int()
 		if err != nil {
 			return 0
@@ -55,7 +50,7 @@ func GetInt32(col string, rowIdx int, df *dataframe.DataFrame) int32 {
 	if df == nil {
 		return 0
 	}
-	if idx := df.Names(); containsString(idx, col) {
+	if idx := df.Names(); slices.Contains(idx, col) {
 		val, err := df.Col(col).Elem(rowIdx).Int()
 		if err != nil {
 			return 0
@@ -69,7 +64,7 @@ func GetInt64(col string, rowIdx int, df *dataframe.DataFrame) int64 {
 	if df == nil {
 		return 0
 	}
-	if idx := df.Names(); containsString(idx, col) {
+	if idx := df.Names(); slices.Contains(idx, col) {
 		val, err := df.Col(col).Elem(rowIdx).Int()
 		if err != nil {
 			return 0
