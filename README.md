@@ -169,6 +169,8 @@ Optional variables (unset ones fall back to the ETL defaults):
 | `LOGLEVEL` | `-loglevel` | `info` | `debug`, `info`, `warn`, `error` |
 | `TRIGGER` | `-trigger` | `MANUAL` | `MANUAL` or `SCHEDULED` |
 | `DEBUG` | `-debug` | `false` | Save filtered CSVs and ignore ingestion history |
+| `DOWNLOAD_LIMIT` | `-downloadLimit` | `70` | Maximum portal downloads per `DOWNLOAD_WINDOW` |
+| `DOWNLOAD_WINDOW` | `-downloadWindow` | `5m1s` | Sliding window for `DOWNLOAD_LIMIT`; also the pause after a block |
 
 Examples:
 ```bash
@@ -196,13 +198,42 @@ The ETL is idempotent: already-processed dates are skipped using the ingestion h
 
 #### Portal rate limiting
 
-The portal's download host (`dadosabertos-download.cgu.gov.br`) is protected by a firewall that starts answering with a CAPTCHA after bursts of requests. The ETL then logs:
+The portal's download host (`dadosabertos-download.cgu.gov.br`) is protected by an AWS WAF rule that answers with a CAPTCHA (`405` + `x-amzn-waf-action: captcha`) once a client goes over roughly **80–100 requests in 5 minutes**. The threshold isn't exact. Measured on 2026-10-06:
 
-```
-[WARN] [Downloader] Non-OK HTTP response: date=20250217 status=405 Method Not Allowed statusCode=405
+- 103 downloads in 27 s went through and the 104th was blocked; the block lifted within ~6 minutes.
+- In a later run, the portal blocked after only 82 downloads in 26 s.
+- Pausing for exactly 5 minutes after a block wasn't enough: the next requests were blocked again, so the window must be slightly longer than 5 minutes.
+
+The ETL paces itself so you don't have to:
+
+- **Download limit:** at most `DOWNLOAD_LIMIT` downloads (default 70, below the lowest observed block point) start within any `DOWNLOAD_WINDOW` (default 5 minutes and 1 second), across all workers. Up to 70 uncached files download at full speed; longer backfills continue at about 14 per minute and log `Download throttled to stay under the portal's rate limit`.
+- **Automatic pause:** if the portal blocks a request anyway, every download pauses for one window and the blocked file is retried (up to 3 times) without failing the job.
+- **Only downloads are paced:** unzipping, filtering and loading keep running on all workers, and cached ZIPs never count against the limit.
+
+A full-year `expenses` backfill (~365 uncached days) therefore takes roughly 25 minutes of downloading:
+
+```bash
+make etl-expenses INIT=2025-01-01 END=2025-12-31 CODES=26421,26415 BY_MANAGING_CODE=true
 ```
 
-The block is temporary and covers every kind, not only the one that triggered it. When backfilling long ranges of `expenses` (one download per day), keep `CONCURRENCY` low and go a month at a time. If you start seeing 405s, stop the run and wait before retrying.
+If the portal tightens its limit, lower the budget instead of changing code:
+
+```bash
+make etl-expenses INIT=2025-01-01 END=2025-12-31 CODES=26421,26415 DOWNLOAD_LIMIT=50 DOWNLOAD_WINDOW=5m1s
+```
+
+##### The limit is per process, the portal's is per IP
+
+The download counter lives in the memory of a single ETL process. The portal, however, counts every request coming from your **public IP**. Each ETL process believes it has the full budget of 70 downloads, so the limiter does **not** protect you when:
+
+| Situation | What the portal sees | How to avoid it |
+|---|---|---|
+| Two ETL runs at the same time (e.g. `expenses` and `budget` in two terminals, or a scheduled run overlapping a manual one) | Up to 2 × 70 requests in 5 minutes | Run kinds one after another, or split the budget: `DOWNLOAD_LIMIT=35` for each |
+| Runs started back-to-back (one ends, the next starts immediately) | The new process starts with an empty counter, so up to 140 requests in 5 minutes | Wait `DOWNLOAD_WINDOW` (just over 5 minutes) between runs that download a lot |
+| ETL on the host and in the Docker container at once, or on several machines behind the same network | All share one public IP | Only one ETL downloading per network at a time |
+| Downloading from the portal manually (browser, `curl`) during a run | Those requests count too | Avoid it while the ETL is downloading |
+
+If any of these happens, the automatic pause still recovers: the blocked downloads wait one window and retry. But every process pauses, the run takes longer, and repeated blocks fail the download after 3 retries. Make sure only one process downloads at a time; the ETL doesn't enforce this.
 
 ### Running the API
 ```bash

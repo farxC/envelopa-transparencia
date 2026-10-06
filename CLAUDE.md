@@ -13,7 +13,8 @@ ETL + REST API that crawls the Brazilian Transparency Portal (Portal da Transpar
 go run ./cmd/api
 
 # ETL via Make — one target per kind; INIT, END, CODES, BY_MANAGING_CODE,
-# CONCURRENCY, LOGLEVEL, TRIGGER, DEBUG are optional and map to the flags below
+# CONCURRENCY, LOGLEVEL, TRIGGER, DEBUG, DOWNLOAD_LIMIT, DOWNLOAD_WINDOW are
+# optional and map to the flags below
 make etl-expenses INIT=2025-01-01 END=2025-01-31 CODES=26421,26415 BY_MANAGING_CODE=true CONCURRENCY=2
 make etl-expenses-execution INIT=2025-01-01 END=2025-12-31 CODES=26421,26415 BY_MANAGING_CODE=true
 make etl-budget INIT=2025-01-01 END=2026-12-31 CODES=26421,26415
@@ -28,7 +29,9 @@ go run ./cmd/etl \
   -concurrency=10 \
   -loglevel=info \             # debug, info, warn, error
   -trigger=MANUAL \            # MANUAL or SCHEDULED
-  -debug=false                 # true = save filtered CSVs, bypass history checks
+  -debug=false \               # true = save filtered CSVs, bypass history checks
+  -downloadLimit=70 \          # max portal downloads per window (portal blocked at 82-103/5min)
+  -downloadWindow=5m1s         # sliding window for -downloadLimit; pause length after a block
 
 # Migrations
 make migrate-up
@@ -151,10 +154,10 @@ ADDR                  # API listen address (default :8080)
 
 ## Testing
 
-Table-driven unit tests exist for pt-BR number/date parsing (`internal/utils/parser_test.go`) and ETL flag parsing (`cmd/etl/flags_test.go`). There are no DB integration tests; infrastructure is tested manually via Docker.
+Table-driven unit tests exist for pt-BR number/date parsing (`internal/utils/parser_test.go`), ETL flag parsing (`cmd/etl/flags_test.go`) and the rate-limited downloader (`internal/infrastructure/client/portal/download_test.go`, uses `httptest`). There are no DB integration tests; infrastructure is tested manually via Docker.
 
 ```bash
-go test ./internal/utils/ ./cmd/etl/
+go test ./internal/utils/ ./cmd/etl/ ./internal/infrastructure/client/portal/
 ```
 
 ## Important Quirks
@@ -166,5 +169,6 @@ go test ./internal/utils/ ./cmd/etl/
 - **Tmp dirs**: ETL creates `tmp/zips/` and `tmp/data/` under the working directory at startup. Already-downloaded `expenses` and `budget` ZIPs are reused (checked via `os.Stat`).
 - **DB connection fails fast**: `db.New` pings the database and returns the error, so bad credentials surface at startup (`pq: password authentication failed`). If that happens on the host, `DB_ADDR` is missing or the password doesn't match the Postgres volume — `docker-compose.yml` uses `helloworld`, the prod compose uses `.env.production`; both publish port 5454.
 - **Compose `$$DB_ADDR`**: the `migrate` service command in `docker-compose.prod.yml` must use `$$DB_ADDR`. A single `$` is interpolated by Compose from the host `.env` (which points at `localhost`), not from the service's `env_file`.
-- **Portal rate limiting**: the download host `dadosabertos-download.cgu.gov.br` sits behind AWS WAF. Bursts (e.g. a long `expenses` backfill at concurrency 10) trigger a CAPTCHA, which the ETL sees as `405 Method Not Allowed` with header `x-amzn-waf-action: captcha`, for every kind. It's temporary — wait, then backfill a month at a time with low `CONCURRENCY`. Don't try to bypass the CAPTCHA.
+- **Portal rate limiting**: the download host `dadosabertos-download.cgu.gov.br` sits behind AWS WAF and answers with a CAPTCHA (`405` + `x-amzn-waf-action: captcha`) above roughly 80–100 requests per 5 minutes (observed blocks at 82 and 103), for every kind. `client/portal/download.go` handles it: a sliding-window limiter shared by all workers (`-downloadLimit`, default 70, per `-downloadWindow`, default 5m1s — exactly 5m was measured to be too short) gates every download, and a WAF block pauses all downloads for one window and retries the file in the client (max 3) instead of failing the job. All `Fetch*` methods must go through `download()`. Downloads are written to `<path>.part` and renamed, so a cached ZIP is never partial. Don't try to bypass the CAPTCHA.
+- **The download limit is per process, the portal's is per public IP**: the limiter is in memory, so concurrent ETL processes (two kinds in parallel, scheduled + manual, host + Docker, other machines on the same network) each get the full budget, and a process started right after another starts with an empty counter. Any of these can exceed the portal threshold and trigger the block. Run downloading ETLs one at a time, wait one window between heavy runs, or split `-downloadLimit` between processes. Nothing enforces this — if you add scheduling or parallel runs, add a cross-process limit (e.g. a DB-backed counter or advisory lock) first.
 - **`expenses` vs `expenses_execution`** are entirely separate data sources with separate DB tables and separate pipelines — don't conflate them.
