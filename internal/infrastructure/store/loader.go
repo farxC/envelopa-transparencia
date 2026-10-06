@@ -121,15 +121,15 @@ func (s *storageLoader) LoadExpenses(ctx context.Context, payload *service.Expen
 						return err
 					}
 				}
-			}
 
-			for _, imp := range unit.PaymentImpactedCommitments {
-				imp.InsertedAt = time.Now()
-				imp.UpdatedAt = time.Now()
+				for _, imp := range payment.ImpactedCommitments {
+					imp.InsertedAt = time.Now()
+					imp.UpdatedAt = time.Now()
 
-				if err := txStorage.Payment.InsertPaymentImpactedCommitment(ctx, &imp); err != nil {
-					s.logger.Error(component, "Failed to insert payment impacted commitment %s: %v", imp.CommitmentCode, err)
-					return err
+					if err := txStorage.Payment.InsertPaymentImpactedCommitment(ctx, &imp); err != nil {
+						s.logger.Error(component, "Failed to insert payment impacted commitment %s: %v", imp.CommitmentCode, err)
+						return err
+					}
 				}
 			}
 			return tx.Commit()
