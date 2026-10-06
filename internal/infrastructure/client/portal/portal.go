@@ -2,9 +2,7 @@ package portal
 
 import (
 	"fmt"
-	"io"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 
@@ -16,22 +14,25 @@ import (
 )
 
 type transparencyPortalClient struct {
-	logger  *logger.Logger
-	baseUrl string
-	client  *http.Client
-	debug   bool
+	logger       *logger.Logger
+	baseUrl      string
+	client       *http.Client
+	debug        bool
+	downloadOpts DownloadOptions
+	limiter      *windowLimiter
 }
 
 var PortalTransparenciaURL = "https://portaldatransparencia.gov.br/download-de-dados/"
 
-func NewTransparencyClient(logger *logger.Logger, debug bool) service.TransparencyPortalClient {
+func NewTransparencyClient(logger *logger.Logger, debug bool, downloadOpts DownloadOptions) service.TransparencyPortalClient {
 	return &transparencyPortalClient{
-		logger:  logger,
-		baseUrl: PortalTransparenciaURL,
-		client:  &http.Client{},
-		debug:   debug,
+		logger:       logger,
+		baseUrl:      PortalTransparenciaURL,
+		client:       &http.Client{},
+		debug:        debug,
+		downloadOpts: downloadOpts,
+		limiter:      newWindowLimiter(downloadOpts.Limit, downloadOpts.Window),
 	}
-
 }
 
 type MatchColumn string
@@ -75,92 +76,15 @@ func (c *transparencyPortalClient) ExtractExpensesExecution(cfg service.Expenses
 }
 
 func (c *transparencyPortalClient) FetchExpensesExecution(month, year string) service.DownloadResult {
-	const component = "Downloader"
 	url := c.baseUrl + "despesas-execucao/" + year + month
-	output_path := "tmp/zips/expenses_execution/" + year + month + "_Despesas.zip"
-
-	c.logger.Debug(component, "Starting download for month=%s year=%s url=%s", month, year, url)
-
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		c.logger.Error(component, "Failed to create HTTP request: month=%s year=%s error=%v", month, year, err)
-		return service.DownloadResult{Success: false}
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3")
-
-	resp, err := c.client.Do(req)
-
-	if err != nil {
-		c.logger.Error(component, "HTTP request failed: month=%s year=%s error=%v", month, year, err)
-		return service.DownloadResult{Success: false}
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.Warn(component, "Non-OK HTTP response: month=%s year=%s status=%s statusCode=%d body=%d", month, year, resp.Status, resp.StatusCode, resp.Body)
-		return service.DownloadResult{Success: false}
-	}
-
-	out, err := os.Create(output_path)
-
-	if err != nil {
-		c.logger.Error(component, "Failed to create output file: month=%s year=%s path=%s error=%v", month, year, output_path, err)
-		return service.DownloadResult{Success: false}
-	}
-	defer out.Close()
-
-	bytesWritten, err := io.Copy(out, resp.Body)
-	if err != nil {
-		c.logger.Error(component, "Failed to write data to file: month=%s year=%s error=%v", month, year, err)
-		return service.DownloadResult{Success: false}
-	}
-
-	c.logger.Info(component, "Download completed: month=%s year=%s path=%s size=%d bytes", month, year, output_path, bytesWritten)
-	return service.DownloadResult{Success: true, OutputPath: output_path}
+	outputPath := "tmp/zips/expenses_execution/" + year + month + "_Despesas.zip"
+	return c.download("month="+month+" year="+year, url, outputPath)
 }
 
 func (c *transparencyPortalClient) FetchBudget(year string) service.DownloadResult {
-	const component = "Downloader"
 	url := c.baseUrl + "orcamento-despesa/" + year
 	outputPath := "tmp/zips/budget/" + year + "_OrcamentoDespesa.zip"
-
-	c.logger.Info(component, "Starting budget download for year=%s url=%s", year, url)
-
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		c.logger.Error(component, "Failed to create HTTP request: year=%s error=%v", year, err)
-		return service.DownloadResult{Success: false}
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3")
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		c.logger.Error(component, "HTTP request failed: year=%s error=%v", year, err)
-		return service.DownloadResult{Success: false}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.Warn(component, "Non-OK HTTP response: year=%s status=%s statusCode=%d body=%s", year, resp.Status, resp.StatusCode, resp.Body)
-		return service.DownloadResult{Success: false}
-	}
-
-	out, err := os.Create(outputPath)
-	if err != nil {
-		c.logger.Error(component, "Failed to create output file: year=%s path=%s error=%v", year, outputPath, err)
-		return service.DownloadResult{Success: false}
-	}
-	defer out.Close()
-
-	bytesWritten, err := io.Copy(out, resp.Body)
-	if err != nil {
-		c.logger.Error(component, "Failed to write data to file: year=%s error=%v", year, err)
-		return service.DownloadResult{Success: false}
-	}
-
-	c.logger.Info(component, "Budget download completed: year=%s path=%s size=%d bytes", year, outputPath, bytesWritten)
-	return service.DownloadResult{Success: true, OutputPath: outputPath}
+	return c.download("year="+year, url, outputPath)
 }
 
 func (c *transparencyPortalClient) ExtractBudget(cfg service.BudgetExtractionConfig) (*service.BudgetPayload, error) {
@@ -191,49 +115,9 @@ func (c *transparencyPortalClient) ExtractBudget(cfg service.BudgetExtractionCon
 }
 
 func (c *transparencyPortalClient) FetchExpensesData(date string) service.DownloadResult {
-	component := "Downloader"
 	url := c.baseUrl + "despesas/" + date
-	output_path := "tmp/zips/expenses/despesas_" + date + ".zip"
-
-	c.logger.Debug(component, "Starting download for date=%s url=%s", date, url)
-
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		c.logger.Error(component, "Failed to create HTTP request: date=%s error=%v", date, err)
-		return service.DownloadResult{Success: false}
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3")
-
-	resp, err := c.client.Do(req)
-
-	if err != nil {
-		c.logger.Error(component, "HTTP request failed: date=%s error=%v", date, err)
-		return service.DownloadResult{Success: false}
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.Warn(component, "Non-OK HTTP response: date=%s status=%s statusCode=%d", date, resp.Status, resp.StatusCode)
-		return service.DownloadResult{Success: false}
-	}
-
-	out, err := os.Create(output_path)
-
-	if err != nil {
-		c.logger.Error(component, "Failed to create output file: date=%s path=%s error=%v", date, output_path, err)
-		return service.DownloadResult{Success: false}
-	}
-	defer out.Close()
-
-	bytesWritten, err := io.Copy(out, resp.Body)
-	if err != nil {
-		c.logger.Error(component, "Failed to write data to file: date=%s error=%v", date, err)
-		return service.DownloadResult{Success: false}
-	}
-
-	c.logger.Info(component, "Download completed: date=%s path=%s size=%d bytes", date, output_path, bytesWritten)
-	return service.DownloadResult{Success: true, OutputPath: output_path}
+	outputPath := "tmp/zips/expenses/despesas_" + date + ".zip"
+	return c.download("date="+date, url, outputPath)
 }
 
 func (c *transparencyPortalClient) ExtractExpenses(cfg service.ExpensesExtractionConfig) (*service.ExpensesPayload, error) {
