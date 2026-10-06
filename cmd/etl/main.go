@@ -108,6 +108,10 @@ func createTmpDirs(appLogger *logger.Logger) error {
 }
 
 func main() {
+	if err := env.Load(); err != nil {
+		log.Fatalf("failed to load .env: %v", err)
+	}
+
 	const component = "Main"
 	monitor := NewMonitor()
 	appLogger := &logger.Logger{MinLevel: logger.LevelInfo}

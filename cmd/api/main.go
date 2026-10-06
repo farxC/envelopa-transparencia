@@ -26,6 +26,10 @@ import (
 //	@name		Authorization
 //	@description
 func main() {
+	if err := env.Load(); err != nil {
+		log.Fatalf("failed to load .env: %v", err)
+	}
+
 	cfg := config{
 		addr: env.GetString("ADDR", ":8080"),
 		db: dbConfig{
