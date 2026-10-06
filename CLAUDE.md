@@ -13,7 +13,7 @@ ETL + REST API that crawls the Brazilian Transparency Portal (Portal da Transpar
 go run ./cmd/api
 
 # ETL via Make — one target per kind; INIT, END, CODES, BY_MANAGING_CODE,
-# CONCURRENCY, LOGLEVEL, TRIGGER, DEBUG, DOWNLOAD_LIMIT, DOWNLOAD_WINDOW are
+# CONCURRENCY, LOGLEVEL, TRIGGER, DEBUG, FORCE, DOWNLOAD_LIMIT, DOWNLOAD_WINDOW are
 # optional and map to the flags below
 make etl-expenses INIT=2025-01-01 END=2025-01-31 CODES=26421,26415 BY_MANAGING_CODE=true CONCURRENCY=2
 make etl-expenses-execution INIT=2025-01-01 END=2025-12-31 CODES=26421,26415 BY_MANAGING_CODE=true
@@ -30,6 +30,7 @@ go run ./cmd/etl \
   -loglevel=info \             # debug, info, warn, error
   -trigger=MANUAL \            # MANUAL or SCHEDULED
   -debug=false \               # true = save filtered CSVs, bypass history checks
+  -force=false \               # true = reprocess SUCCESS/SKIPPED jobs (not fresh IN_PROGRESS), reusing cached ZIPs
   -downloadLimit=70 \          # max portal downloads per window (portal blocked at 82-103/5min)
   -downloadWindow=5m1s         # sliding window for -downloadLimit; pause length after a block
 
@@ -165,6 +166,8 @@ go test ./internal/utils/ ./cmd/etl/ ./internal/infrastructure/client/portal/
 - **pt-BR float format**: `utils/parser.go:ParseFloat` handles both `1.234,56` and `1234.56` — always use this, never `strconv.ParseFloat` directly on portal data.
 - **Idempotency relies on**: (a) unique DB constraints on `commitment_code`, `payment_code`, `liquidation_code`; (b) orchestrator status map from `IngestionHistory`. The ETL is safe to re-run.
 - **ETL flags are validated up front** (`cmd/etl/flags.go:parseFlags`), before the DB connection: unknown `-kind`/`-trigger`/`-loglevel`, malformed dates, `-end` before `-init`, non-numeric codes and `-concurrency < 1` all exit with code 2 and list every problem. `-kind`, `-trigger` and `-loglevel` are case-insensitive; blank entries in `-codes` are ignored. Add new flags there (with a test case), not in `main.go`.
+- **Payment → commitment links** (`payment_impacted_commitments`) are matched by `Código Pagamento` of the day's payments and attached to `Payment.ImpactedCommitments`, like liquidations. Never match them by the day's commitments: a payment almost always settles a commitment issued on an earlier day, so that drops ~96% of the links.
+- **`-force=true`**: reprocesses days/months/years already marked `SUCCESS`/`SKIPPED`, skipping only jobs `IN_PROGRESS` within the 30-minute stale timeout. Cached ZIPs are reused, but days without a cached ZIP are still downloaded — check `tmp/zips/<kind>/` first if the portal budget matters.
 - **`-debug=true`**: saves filtered DataFrames to CSV and bypasses `IngestionHistory` checks — useful for investigating raw portal data without polluting the history table.
 - **Tmp dirs**: ETL creates `tmp/zips/` and `tmp/data/` under the working directory at startup. Already-downloaded `expenses` and `budget` ZIPs are reused (checked via `os.Stat`).
 - **DB connection fails fast**: `db.New` pings the database and returns the error, so bad credentials surface at startup (`pq: password authentication failed`). If that happens on the host, `DB_ADDR` is missing or the password doesn't match the Postgres volume — `docker-compose.yml` uses `helloworld`, the prod compose uses `.env.production`; both publish port 5454.

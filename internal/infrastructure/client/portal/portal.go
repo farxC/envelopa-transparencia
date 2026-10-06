@@ -215,21 +215,20 @@ func (c *transparencyPortalClient) ExtractExpenses(cfg service.ExpensesExtractio
 
 	// Extract impacted commitments for payments
 	var paImpacts []model.PaymentImpactedCommitment
-	if empenhosDf.Nrow() > 0 {
-		ugsCommitments := empenhosDf.Col("Código Empenho").Records()
+	if pagamentosDf.Nrow() > 0 {
 		if p, ok := cfg.Extraction.Files[service.DespesasPagamentoEmpenhosImpactados]; ok {
 			df, err := filesystem.OpenFileAndDecode(p)
 			if err != nil {
 				return nil, err
 			}
 
-			matchedDf := FindRowsSync(df, service.DespesasPagamentoEmpenhosImpactados, ugsCommitments, "Código Empenho", c.debug)
+			matchedDf := matchPaymentImpacts(df, pagamentosDf, c.debug)
 			if matchedDf.Error() != nil {
 				return nil, fmt.Errorf("failed to filter payment impacted commitments: %w", matchedDf.Error())
 			}
-			c.logger.Info(component, "Payment impacts matched: date=%s commitments=%d impactedRows=%d", extractionDate, len(ugsCommitments), matchedDf.Nrow())
+			c.logger.Info(component, "Payment impacts matched: date=%s payments=%d impactedRows=%d", extractionDate, pagamentosDf.Nrow(), matchedDf.Nrow())
 			if matchedDf.Nrow() == 0 {
-				c.logger.Warn(component, "No impacted commitments matched for payment commitments: date=%s commitments=%d", extractionDate, len(ugsCommitments))
+				c.logger.Warn(component, "No impacted commitments matched for payments: date=%s payments=%d", extractionDate, pagamentosDf.Nrow())
 			}
 			for i := 0; i < matchedDf.Nrow(); i++ {
 				imp, err := DfRowToPaymentImpactedCommitment(matchedDf, i)
@@ -339,4 +338,16 @@ func (c *transparencyPortalClient) ExtractExpenses(cfg service.ExpensesExtractio
 
 	c.logger.Info(component, "Extraction completed: date=%s unitsProcessed=%d", extractionDate, len(payload.UnitsExpenses))
 	return payload, nil
+}
+
+// matchPaymentImpacts keeps the rows of the "EmpenhosImpactados" payment file
+// that belong to the given payments. It matches by payment code, not by
+// commitment code: a payment usually settles a commitment issued on an earlier
+// day (often in an earlier year), so the commitment is not among the day's.
+func matchPaymentImpacts(impacts, payments dataframe.DataFrame, debug bool) dataframe.DataFrame {
+	if payments.Nrow() == 0 {
+		return dataframe.DataFrame{}
+	}
+	paymentCodes := payments.Col("Código Pagamento").Records()
+	return FindRowsSync(impacts, service.DespesasPagamentoEmpenhosImpactados, paymentCodes, "Código Pagamento", debug)
 }

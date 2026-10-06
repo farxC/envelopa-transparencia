@@ -18,7 +18,7 @@ func TestWindowLimiterAllowsLimitPerWindow(t *testing.T) {
 	l := newWindowLimiter(3, window)
 
 	start := time.Now()
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		l.Wait()
 	}
 	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
@@ -37,7 +37,7 @@ func TestWindowLimiterIsSharedAcrossGoroutines(t *testing.T) {
 
 	var immediate int32
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
