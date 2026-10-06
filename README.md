@@ -57,8 +57,11 @@ The codebase follows a clean, layered architecture:
 
 ## API Endpoints
 
-### Documentation
+Base path: `/v1`. Most queries require `management_code` and optionally accept `management_unit_codes`, `start_date` and `end_date` (`YYYY-MM-DD`).
+
+### Documentation & Health
 *   `GET /v1/docs/*`: Interactive Swagger UI documentation.
+*   `GET /v1/health`: Health check.
 
 ### Expenses
 *   `GET /v1/expenses/summary`: Summary by management units.
@@ -66,13 +69,27 @@ The codebase follows a clean, layered architecture:
 *   `GET /v1/expenses/budget-execution/report`: Detailed budget execution reports.
 *   `GET /v1/expenses/top-favored`: Top favored entities (suppliers/contractors).
 
+### Budget Execution
+*   `GET /v1/budget-execution/`: Monthly budget execution data.
+
+### Budget
+*   `GET /v1/budget/`: Expense budget records.
+*   `GET /v1/budget/summary`: Expense budget summary.
+*   `GET /v1/budget/global-summary`: Global expense budget summary.
+
 ### Commitments
 *   `GET /v1/commitments/`: Detailed commitment information with filtering.
-
 
 ### Ingestion
 *   `GET /v1/ingestion/history`: History of data ingestion processes.
 *   `POST /v1/ingestion`: Manual creation of ingestion records.
+
+#### Examples
+```bash
+curl http://localhost:8080/v1/health
+curl "http://localhost:8080/v1/expenses/summary?management_code=26421&start_date=2025-01-01&end_date=2025-01-31"
+curl "http://localhost:8080/v1/ingestion/history"
+```
 
 ---
 
@@ -92,17 +109,116 @@ The codebase follows a clean, layered architecture:
 ### Prerequisites
 *   Go 1.24+
 *   Docker & Docker Compose
+*   [golang-migrate](https://github.com/golang-migrate/migrate) CLI (for `make migrate-*`)
+
+### Configuration
+
+Both binaries (`cmd/api` and `cmd/etl`) load `.env` from the working directory at startup, so run them from the repository root. Variables already set in your shell take precedence over `.env`. When no `.env` exists (e.g. inside the Docker image) the built-in defaults are used.
+
+```dotenv
+# .env — local development (host → Docker Postgres on port 5454)
+POSTGRES_DB=transparency_wrapper_db
+POSTGRES_USER=admin
+POSTGRES_PASSWORD=<password>
+DB_ADDR="postgres://admin:<password>@localhost:5454/transparency_wrapper_db?sslmode=disable"
+
+DB_MAX_OPEN_CONNS=25
+DB_MAX_IDLE_CONNS=25
+DB_MAX_IDLE_TIME=15m
+```
+
+`.env.production` holds the same keys for the Docker stack, but `DB_ADDR` must point at the `db` service (`@db:5432`), since containers reach Postgres over the Docker network.
+
+If the database is unreachable or the credentials are wrong, both binaries fail at startup with the Postgres error (e.g. `password authentication failed for user "admin"`).
 
 ### Setup
-1.  `dockercompose up --build`
-2.  `make migrate-up`
 
-### Running the ETL Process
+**Option A — full stack in Docker** (database + migrations + API, uses `.env.production`):
 ```bash
-go run cmd/etl/main.go -init 2025-01-01 -end 2026-03-22 -byManagingCode=true -codes='26421,26415'
+docker network create saga-shared   # once
+docker compose -f docker-compose.prod.yml up -d --build
 ```
+
+**Option B — database in Docker, API/ETL on the host** (uses `.env`):
+```bash
+docker compose up -d   # Postgres only, on localhost:5454
+make migrate-up
+```
+
+The database password must match the one the Postgres volume was initialized with; `docker-compose.yml` uses `helloworld`, `docker-compose.prod.yml` uses `POSTGRES_PASSWORD` from `.env.production`. Both publish port 5454, so run only one at a time.
+
+### Running the ETL
+
+There are three extraction kinds, each with its own Make target:
+
+| Target | Kind | One ZIP per | Data |
+|---|---|---|---|
+| `make etl-expenses` | `expenses` | day | Commitments, liquidations and payments |
+| `make etl-expenses-execution` | `expenses_execution` | month | Aggregated budget execution |
+| `make etl-budget` | `budget` | year | Expense budget |
+
+Optional variables (unset ones fall back to the ETL defaults):
+
+| Variable | ETL flag | Default | Description |
+|---|---|---|---|
+| `INIT` | `-init` | yesterday | Start date (`YYYY-MM-DD`) |
+| `END` | `-end` | yesterday | End date, inclusive (`YYYY-MM-DD`) |
+| `CODES` | `-codes` | IFRO unit codes | Comma-separated unit/management codes |
+| `BY_MANAGING_CODE` | `-byManagingCode` | `false` | Match `Código Gestão` instead of `Código Unidade Gestora` |
+| `CONCURRENCY` | `-concurrency` | `10` | Parallel workers |
+| `LOGLEVEL` | `-loglevel` | `info` | `debug`, `info`, `warn`, `error` |
+| `TRIGGER` | `-trigger` | `MANUAL` | `MANUAL` or `SCHEDULED` |
+| `DEBUG` | `-debug` | `false` | Save filtered CSVs and ignore ingestion history |
+
+Examples:
+```bash
+# Daily expenses for January 2025, filtering by management code
+make etl-expenses INIT=2025-01-01 END=2025-01-31 CODES=26421,26415 BY_MANAGING_CODE=true CONCURRENCY=2
+
+# Monthly budget execution for all of 2025
+make etl-expenses-execution INIT=2025-01-01 END=2025-12-31 CODES=26421,26415 BY_MANAGING_CODE=true
+
+# Yearly budget for 2025 and 2026
+make etl-budget INIT=2025-01-01 END=2026-12-31 CODES=26421,26415
+
+# Inspect a single day's raw data without touching ingestion history
+make etl-expenses INIT=2025-02-17 END=2025-02-17 CODES=26421 DEBUG=true LOGLEVEL=debug
+```
+
+The targets wrap `go run ./cmd/etl`, which can also be called directly:
+```bash
+go run ./cmd/etl -kind=expenses -init=2025-01-01 -end=2025-01-31 -byManagingCode=true -codes='26421,26415'
+```
+
+Run `go run ./cmd/etl -h` to see every flag with examples. Flags are validated before anything else runs: an unknown kind, a malformed date, `END` before `INIT`, a non-numeric code or `CONCURRENCY` below 1 stops the ETL immediately with a message listing every problem. `-kind`, `-trigger` and `-loglevel` are case-insensitive.
+
+The ETL is idempotent: already-processed dates are skipped using the ingestion history, and `expenses`/`budget` ZIPs already in `tmp/zips/` are reused instead of downloaded again.
+
+#### Portal rate limiting
+
+The portal's download host (`dadosabertos-download.cgu.gov.br`) is protected by a firewall that starts answering with a CAPTCHA after bursts of requests. The ETL then logs:
+
+```
+[WARN] [Downloader] Non-OK HTTP response: date=20250217 status=405 Method Not Allowed statusCode=405
+```
+
+The block is temporary and covers every kind, not only the one that triggered it. When backfilling long ranges of `expenses` (one download per day), keep `CONCURRENCY` low and go a month at a time. If you start seeing 405s, stop the run and wait before retrying.
 
 ### Running the API
 ```bash
-go run cmd/api/main.go # or 'air' for hot reload
+go run ./cmd/api   # or 'air' for hot reload
 ```
+
+The API listens on `:8080` by default (override with `ADDR`, e.g. `ADDR=:18080 go run ./cmd/api`).
+
+### Make targets
+
+| Target | Description |
+|---|---|
+| `make migrate-up` | Apply all pending migrations |
+| `make migrate-down N` | Roll back `N` migrations |
+| `make migration NAME` | Create a new migration pair |
+| `make gen-docs` | Regenerate Swagger docs |
+| `make etl-expenses` | Run the daily expenses ETL |
+| `make etl-expenses-execution` | Run the monthly budget execution ETL |
+| `make etl-budget` | Run the yearly budget ETL |

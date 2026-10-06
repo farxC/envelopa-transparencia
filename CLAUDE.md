@@ -9,15 +9,21 @@ ETL + REST API that crawls the Brazilian Transparency Portal (Portal da Transpar
 ## Commands
 
 ```bash
-# API server
-go run cmd/api/main.go
+# API server (run the package, not main.go alone — main.go needs api.go etc.)
+go run ./cmd/api
 
-# ETL (all flags shown with defaults)
-go run cmd/etl/main.go \
-  -kind=expenses_execution \   # or: expenses
-  -init=2025-01-01 \
-  -end=2025-01-31 \
-  -codes='158454,158148' \     # comma-separated unit/management codes
+# ETL via Make — one target per kind; INIT, END, CODES, BY_MANAGING_CODE,
+# CONCURRENCY, LOGLEVEL, TRIGGER, DEBUG are optional and map to the flags below
+make etl-expenses INIT=2025-01-01 END=2025-01-31 CODES=26421,26415 BY_MANAGING_CODE=true CONCURRENCY=2
+make etl-expenses-execution INIT=2025-01-01 END=2025-12-31 CODES=26421,26415 BY_MANAGING_CODE=true
+make etl-budget INIT=2025-01-01 END=2026-12-31 CODES=26421,26415
+
+# ETL directly (all flags shown with defaults)
+go run ./cmd/etl \
+  -kind=expenses_execution \   # expenses | expenses_execution | budget
+  -init=<yesterday> \
+  -end=<yesterday> \
+  -codes='158454,158148,...' \ # comma-separated unit/management codes
   -byManagingCode=false \      # true = filter by management code column
   -concurrency=10 \
   -loglevel=info \             # debug, info, warn, error
@@ -55,27 +61,31 @@ internal/application/
   orchestrator.go                      → Generic Orchestrator[J] with worker pool, retries, idempotency
   pipeline_expenses_daily.go           → Pipeline[ExpensesDailyJob]
   pipeline_expenses_execution.go       → Pipeline[ExpensesExecutionJob]
+  pipeline_budget.go                   → Pipeline[BudgetJob]
 
 internal/infrastructure/
   client/portal/  → HTTP downloader (portal.go), DataFrame queries (query.go), CSV mappers (mapper.go)
   store/          → sqlx repository implementations + transactional loader
   filesystem/     → ZIP extraction, CSV reading (encoding-aware)
   db/             → sqlx connection pool
-  env/            → GetString/GetInt env helpers
+  env/            → Load (.env via godotenv) + GetString/GetInt env helpers
   logger/         → Leveled structured logger
 
 internal/utils/
   parser.go       → ParseFloat (pt-BR format), ParseDate, ParseInt64, ParseBool
 ```
 
-### Two Extraction Types
+### Three Extraction Types
 
 | Kind | Granularity | Source | Data |
 |------|-------------|--------|------|
-| `expenses` | Per day | `despesas-YYYYMMDD.zip` | Commitment → Liquidation → Payment full lifecycle |
-| `expenses_execution` | Per month | `despesas-execucao/YYYYMM.zip` | Monthly aggregated budget execution rows |
+| `expenses` | Per day | `despesas/YYYYMMDD` | Commitment → Liquidation → Payment full lifecycle |
+| `expenses_execution` | Per month | `despesas-execucao/YYYYMM` | Monthly aggregated budget execution rows |
+| `budget` | Per year | `orcamento-despesa/YYYY` | Yearly expense budget (ignores `-byManagingCode`) |
 
-### ETL Pipeline Steps (both kinds follow the same contract)
+Downloaded ZIPs are cached in `tmp/zips/<kind>/`; `expenses` and `budget` reuse a cached ZIP, `expenses_execution` always re-downloads.
+
+### ETL Pipeline Steps (all kinds follow the same contract)
 
 1. **Download** — `portal.go` fetches ZIP from transparency portal (User-Agent spoofed)
 2. **Extract** — `filesystem/local.go` unzips to `tmp/data/`; skips irrelevant files (Bancos, Faturas, Precatorios)
@@ -112,6 +122,9 @@ Base: `/v1/`
 | GET | `/expenses/budget-execution/report` | Budget report by expense nature |
 | GET | `/expenses/top-favored` | Top suppliers by payment value |
 | GET | `/budget-execution/` | Monthly execution data |
+| GET | `/budget/` | Expense budget records |
+| GET | `/budget/summary` | Expense budget summary |
+| GET | `/budget/global-summary` | Global expense budget summary |
 | GET | `/commitments/` | Commitments with items & history |
 | GET | `/ingestion/history` | Audit records |
 | POST | `/ingestion` | Create ingestion record |
@@ -121,7 +134,12 @@ Most queries require `management_code`; optionally accept `management_unit_codes
 
 ## Configuration
 
-Key environment variables (loaded from `.env` by Makefile, read at runtime via `internal/infrastructure/env/`):
+`cmd/api` and `cmd/etl` call `env.Load()` first thing, which loads `.env` from the working directory via godotenv (already-set variables win; a missing `.env` is ignored). The Makefile also `include`s `.env`. Run commands from the repo root.
+
+- `.env` — host development: `DB_ADDR` points at `localhost:5454`
+- `.env.production` — Docker stack (`docker-compose.prod.yml`): `DB_ADDR` points at `db:5432`
+
+Key environment variables:
 
 ```
 DB_ADDR               # full postgres connection string
@@ -133,16 +151,20 @@ ADDR                  # API listen address (default :8080)
 
 ## Testing
 
-Only `internal/utils/parser_test.go` exists — table-driven tests for pt-BR number/date parsing. There are no DB integration tests; infrastructure is tested manually via Docker.
+Table-driven unit tests exist for pt-BR number/date parsing (`internal/utils/parser_test.go`) and ETL flag parsing (`cmd/etl/flags_test.go`). There are no DB integration tests; infrastructure is tested manually via Docker.
 
 ```bash
-go test ./internal/utils/
+go test ./internal/utils/ ./cmd/etl/
 ```
 
 ## Important Quirks
 
 - **pt-BR float format**: `utils/parser.go:ParseFloat` handles both `1.234,56` and `1234.56` — always use this, never `strconv.ParseFloat` directly on portal data.
 - **Idempotency relies on**: (a) unique DB constraints on `commitment_code`, `payment_code`, `liquidation_code`; (b) orchestrator status map from `IngestionHistory`. The ETL is safe to re-run.
+- **ETL flags are validated up front** (`cmd/etl/flags.go:parseFlags`), before the DB connection: unknown `-kind`/`-trigger`/`-loglevel`, malformed dates, `-end` before `-init`, non-numeric codes and `-concurrency < 1` all exit with code 2 and list every problem. `-kind`, `-trigger` and `-loglevel` are case-insensitive; blank entries in `-codes` are ignored. Add new flags there (with a test case), not in `main.go`.
 - **`-debug=true`**: saves filtered DataFrames to CSV and bypasses `IngestionHistory` checks — useful for investigating raw portal data without polluting the history table.
-- **Tmp dirs**: ETL creates `tmp/zips/` and `tmp/data/` under the working directory at startup. Already-downloaded ZIPs are reused (checked via `os.Stat`).
+- **Tmp dirs**: ETL creates `tmp/zips/` and `tmp/data/` under the working directory at startup. Already-downloaded `expenses` and `budget` ZIPs are reused (checked via `os.Stat`).
+- **DB connection fails fast**: `db.New` pings the database and returns the error, so bad credentials surface at startup (`pq: password authentication failed`). If that happens on the host, `DB_ADDR` is missing or the password doesn't match the Postgres volume — `docker-compose.yml` uses `helloworld`, the prod compose uses `.env.production`; both publish port 5454.
+- **Compose `$$DB_ADDR`**: the `migrate` service command in `docker-compose.prod.yml` must use `$$DB_ADDR`. A single `$` is interpolated by Compose from the host `.env` (which points at `localhost`), not from the service's `env_file`.
+- **Portal rate limiting**: the download host `dadosabertos-download.cgu.gov.br` sits behind AWS WAF. Bursts (e.g. a long `expenses` backfill at concurrency 10) trigger a CAPTCHA, which the ETL sees as `405 Method Not Allowed` with header `x-amzn-waf-action: captcha`, for every kind. It's temporary — wait, then backfill a month at a time with low `CONCURRENCY`. Don't try to bypass the CAPTCHA.
 - **`expenses` vs `expenses_execution`** are entirely separate data sources with separate DB tables and separate pipelines — don't conflate them.
