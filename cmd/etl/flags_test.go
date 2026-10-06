@@ -43,7 +43,7 @@ func TestParseFlags(t *testing.T) {
 			args: []string{
 				"-kind=expenses", "-init=2025-01-01", "-end=2025-01-31",
 				"-codes=26421,26415", "-byManagingCode=true", "-trigger=SCHEDULED",
-				"-loglevel=debug", "-concurrency=2", "-debug=true",
+				"-loglevel=debug", "-concurrency=2", "-debug=true", "-force=true",
 				"-downloadLimit=50", "-downloadWindow=2m",
 			},
 			want: etlFlags{
@@ -57,6 +57,7 @@ func TestParseFlags(t *testing.T) {
 				logLevelName:   "debug",
 				concurrency:    2,
 				debug:          true,
+				force:          true,
 				download:       portal.DownloadOptions{Limit: 50, Window: 2 * time.Minute},
 			},
 		},

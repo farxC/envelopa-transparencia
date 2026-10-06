@@ -48,6 +48,7 @@ type etlFlags struct {
 	logLevelName   string
 	concurrency    int
 	debug          bool
+	force          bool
 	download       portal.DownloadOptions
 }
 
@@ -58,6 +59,9 @@ Examples:
 
   # Monthly budget execution for 2025
   etl -kind=expenses_execution -init=2025-01-01 -end=2025-12-31 -codes=26421,26415 -byManagingCode
+
+  # Reload days already in the ingestion history, reusing cached ZIPs
+  etl -kind=expenses -init=2025-02-17 -end=2026-09-30 -codes=26421,26415 -byManagingCode -force -concurrency=2
 
   # Yearly budget for 2025 and 2026
   etl -kind=budget -init=2025-01-01 -end=2026-12-31 -codes=26421,26415
@@ -86,6 +90,7 @@ func parseFlags(args []string, now time.Time, output io.Writer) (etlFlags, error
 	logLevel := fs.String("loglevel", "info", "log `level`: debug, info, warn, error")
 	concurrency := fs.Int("concurrency", 10, "number of concurrent `workers`; keep it low for long ranges to avoid the portal's rate limit")
 	debug := fs.Bool("debug", false, "save matched dataframes to CSV and bypass ingestion history checks")
+	force := fs.Bool("force", false, "reprocess jobs already recorded as SUCCESS or SKIPPED in the ingestion history (jobs still IN_PROGRESS are skipped); cached ZIPs are reused")
 	defaultDownload := portal.DefaultDownloadOptions()
 	downloadLimit := fs.Int("downloadLimit", defaultDownload.Limit, "maximum portal downloads per -downloadWindow, for this process only; the portal blocks above roughly 80-100 per 5 minutes per IP, so split it between ETL runs that download at the same time")
 	downloadWindow := fs.Duration("downloadWindow", defaultDownload.Window, "sliding window for -downloadLimit, and how long downloads pause when the portal blocks them")
@@ -101,6 +106,7 @@ func parseFlags(args []string, now time.Time, output io.Writer) (etlFlags, error
 		logLevelName:   strings.ToLower(strings.TrimSpace(*logLevel)),
 		concurrency:    *concurrency,
 		debug:          *debug,
+		force:          *force,
 		download:       portal.DownloadOptions{Limit: *downloadLimit, Window: *downloadWindow},
 	}
 

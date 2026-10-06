@@ -160,9 +160,9 @@ func main() {
 
 	transparency_portal_client := portal.NewTransparencyClient(appLogger, flags.debug, flags.download)
 
-	appLogger.Info(component, "Application started: kind=%s initDate=%s endDate=%s codes=%v byManagingCode=%t trigger=%s concurrency=%d downloadLimit=%d/%s logLevel=%s debug=%t",
+	appLogger.Info(component, "Application started: kind=%s initDate=%s endDate=%s codes=%v byManagingCode=%t trigger=%s concurrency=%d downloadLimit=%d/%s logLevel=%s debug=%t force=%t",
 		flags.kind, flags.initDate.Format(time.DateOnly), flags.endDate.Format(time.DateOnly), flags.codes,
-		flags.byManagingCode, flags.trigger, flags.concurrency, flags.download.Limit, flags.download.Window, flags.logLevelName, flags.debug)
+		flags.byManagingCode, flags.trigger, flags.concurrency, flags.download.Limit, flags.download.Window, flags.logLevelName, flags.debug, flags.force)
 	if flags.kind == kindBudget && flags.byManagingCode {
 		appLogger.Warn(component, "-byManagingCode is ignored by the budget kind")
 	}
@@ -201,7 +201,7 @@ func main() {
 				IsManagingCode: isManagingCode,
 				Trigger:        flags.trigger,
 			}
-			if flags.debug || orch.ShouldProcess(pipeline.StatusKey(job)) {
+			if flags.debug || orch.ShouldProcess(pipeline.StatusKey(job), flags.force) {
 				orch.AddJob(job)
 			} else {
 				appLogger.Info(component, "Skipping date (already processed or active): date=%s", d.Format(time.DateOnly))
@@ -233,7 +233,7 @@ func main() {
 				IsManagingCode: isManagingCode,
 				Trigger:        flags.trigger,
 			}
-			if flags.debug || orch.ShouldProcess(pipeline.StatusKey(job)) {
+			if flags.debug || orch.ShouldProcess(pipeline.StatusKey(job), flags.force) {
 				orch.AddJob(job)
 			} else {
 				appLogger.Info(component, "Skipping month (already processed or active): month=%s-%s", job.Year, job.Month)
@@ -263,7 +263,7 @@ func main() {
 				Codes:   codesArr,
 				Trigger: flags.trigger,
 			}
-			if flags.debug || orch.ShouldProcess(pipeline.StatusKey(job)) {
+			if flags.debug || orch.ShouldProcess(pipeline.StatusKey(job), flags.force) {
 				orch.AddJob(job)
 			} else {
 				appLogger.Info(component, "Skipping year (already processed or active): year=%s", job.Year)
