@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"runtime"
-	"strings"
 	"sync"
 	"time"
 
@@ -112,9 +112,18 @@ func main() {
 		log.Fatalf("failed to load .env: %v", err)
 	}
 
+	flags, err := parseFlags(os.Args[1:], time.Now(), os.Stderr)
+	if errors.Is(err, flag.ErrHelp) {
+		os.Exit(0)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n\nRun with -h for usage.\n", err)
+		os.Exit(2)
+	}
+
 	const component = "Main"
 	monitor := NewMonitor()
-	appLogger := &logger.Logger{MinLevel: logger.LevelInfo}
+	appLogger := &logger.Logger{MinLevel: flags.logLevel}
 
 	monitor.Start(400*time.Millisecond, appLogger)
 
@@ -149,46 +158,14 @@ func main() {
 	loader := store.NewStorageLoader(storage, appLogger)
 	ctx := context.Background()
 
-	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
-	initDatePtr := flag.String("init", yesterday, "Initial date for data extraction")
-	endDatePtr := flag.String("end", yesterday, "End date for data extraction")
-	byManagingCodePtr := flag.Bool("byManagingCode", false, "Extract data by managing code or managing unit code")
-	triggerPtr := flag.String("trigger", "MANUAL", "Trigger source: MANUAL, SCHEDULED")
-	kindPtr := flag.String("kind", "expenses_execution", "Kind of data to extract: expenses_execution, expenses")
-	codesPtr := flag.String("codes", "158454,158148,158341,158342,158343,158345,158376,158332,158533,158635,158636", "Comma-separated list of Unit Codes to extract")
-	logLevelPtr := flag.String("loglevel", "info", "Log level: debug, info, warn, error")
-	concurrencyPtr := flag.Int("concurrency", 10, "Number of concurrent workers")
-	debugPtr := flag.Bool("debug", false, "Debug mode: saves matched dataframes to CSV and bypasses ingestion history checks")
-	flag.Parse()
-	transparency_portal_client := portal.NewTransparencyClient(appLogger, *debugPtr)
+	transparency_portal_client := portal.NewTransparencyClient(appLogger, flags.debug)
 
-	// Set log level based on flag
-	switch strings.ToLower(*logLevelPtr) {
-	case "debug":
-		appLogger.SetLogLevel(logger.LevelDebug)
-	case "info":
-		appLogger.SetLogLevel(logger.LevelInfo)
-	case "warn":
-		appLogger.SetLogLevel(logger.LevelWarn)
-	case "error":
-		appLogger.SetLogLevel(logger.LevelError)
-	default:
-		appLogger.SetLogLevel(logger.LevelInfo)
+	appLogger.Info(component, "Application started: kind=%s initDate=%s endDate=%s codes=%v byManagingCode=%t trigger=%s concurrency=%d logLevel=%s debug=%t",
+		flags.kind, flags.initDate.Format(time.DateOnly), flags.endDate.Format(time.DateOnly), flags.codes,
+		flags.byManagingCode, flags.trigger, flags.concurrency, flags.logLevelName, flags.debug)
+	if flags.kind == kindBudget && flags.byManagingCode {
+		appLogger.Warn(component, "-byManagingCode is ignored by the budget kind")
 	}
-
-	init_date := *initDatePtr
-	end_date := *endDatePtr
-	codes := strings.Split(*codesPtr, ",")
-	isManagingCode := *byManagingCodePtr
-
-	codesArr := []int64{}
-	for _, c := range codes {
-		var codeInt int64
-		fmt.Sscanf(c, "%d", &codeInt)
-		codesArr = append(codesArr, codeInt)
-	}
-
-	appLogger.Info(component, "Application started: initDate=%s endDate=%s codesCount=%d logLevel=%s", init_date, end_date, len(codes), *logLevelPtr)
 
 	// Create necessary directories
 	err = createTmpDirs(appLogger)
@@ -197,23 +174,17 @@ func main() {
 		return
 	}
 
-	init_parsed_date, err := time.Parse(time.DateOnly, init_date)
-	if err != nil {
-		appLogger.Fatal(component, "Invalid init date format: date=%s error=%v", init_date, err)
-		return
-	}
-	end_parsed_date, err := time.Parse(time.DateOnly, end_date)
-	if err != nil {
-		appLogger.Fatal(component, "Invalid end date format: date=%s error=%v", end_date, err)
-		return
-	}
+	codesArr := flags.codes
+	isManagingCode := flags.byManagingCode
+	init_parsed_date := flags.initDate
+	end_parsed_date := flags.endDate
 
 	// Initialize and run the orchestrator for the requested extraction kind.
-	switch *kindPtr {
+	switch flags.kind {
 
-	case "expenses":
+	case kindExpenses:
 		pipeline := application.NewExpensesDailyPipeline(transparency_portal_client, loader, appLogger)
-		orch := application.NewOrchestrator(pipeline, storage.IngestionHistory, appLogger, *concurrencyPtr)
+		orch := application.NewOrchestrator(pipeline, storage.IngestionHistory, appLogger, flags.concurrency)
 
 		start, end := pipeline.HistoryRange(init_parsed_date, end_parsed_date)
 		if err = orch.InitializeState(ctx, start, end, codesArr); err != nil {
@@ -228,9 +199,9 @@ func main() {
 				Date:           d,
 				Codes:          codesArr,
 				IsManagingCode: isManagingCode,
-				Trigger:        *triggerPtr,
+				Trigger:        flags.trigger,
 			}
-			if *debugPtr || orch.ShouldProcess(pipeline.StatusKey(job)) {
+			if flags.debug || orch.ShouldProcess(pipeline.StatusKey(job)) {
 				orch.AddJob(job)
 			} else {
 				appLogger.Info(component, "Skipping date (already processed or active): date=%s", d.Format(time.DateOnly))
@@ -240,9 +211,9 @@ func main() {
 		orch.Close()
 		orch.Wait()
 
-	case "expenses_execution":
+	case kindExpensesExecution:
 		pipeline := application.NewExpensesExecutionPipeline(transparency_portal_client, loader, appLogger)
-		orch := application.NewOrchestrator(pipeline, storage.IngestionHistory, appLogger, *concurrencyPtr)
+		orch := application.NewOrchestrator(pipeline, storage.IngestionHistory, appLogger, flags.concurrency)
 
 		start, end := pipeline.HistoryRange(init_parsed_date, end_parsed_date)
 		if err = orch.InitializeState(ctx, start, end, codesArr); err != nil {
@@ -260,9 +231,9 @@ func main() {
 				Month:          m.Format("01"),
 				Codes:          codesArr,
 				IsManagingCode: isManagingCode,
-				Trigger:        *triggerPtr,
+				Trigger:        flags.trigger,
 			}
-			if *debugPtr || orch.ShouldProcess(pipeline.StatusKey(job)) {
+			if flags.debug || orch.ShouldProcess(pipeline.StatusKey(job)) {
 				orch.AddJob(job)
 			} else {
 				appLogger.Info(component, "Skipping month (already processed or active): month=%s-%s", job.Year, job.Month)
@@ -272,9 +243,9 @@ func main() {
 		orch.Close()
 		orch.Wait()
 
-	case "budget":
+	case kindBudget:
 		pipeline := application.NewBudgetPipeline(transparency_portal_client, loader, appLogger)
-		orch := application.NewOrchestrator(pipeline, storage.IngestionHistory, appLogger, *concurrencyPtr)
+		orch := application.NewOrchestrator(pipeline, storage.IngestionHistory, appLogger, flags.concurrency)
 
 		start, end := pipeline.HistoryRange(init_parsed_date, end_parsed_date)
 		if err = orch.InitializeState(ctx, start, end, codesArr); err != nil {
@@ -290,9 +261,9 @@ func main() {
 			job := model.BudgetJob{
 				Year:    y.Format("2006"),
 				Codes:   codesArr,
-				Trigger: *triggerPtr,
+				Trigger: flags.trigger,
 			}
-			if *debugPtr || orch.ShouldProcess(pipeline.StatusKey(job)) {
+			if flags.debug || orch.ShouldProcess(pipeline.StatusKey(job)) {
 				orch.AddJob(job)
 			} else {
 				appLogger.Info(component, "Skipping year (already processed or active): year=%s", job.Year)
@@ -302,9 +273,6 @@ func main() {
 		orch.Close()
 		orch.Wait()
 
-	default:
-		appLogger.Fatal(component, "Unknown extraction kind: kind=%s (valid: expenses, expenses_execution, budget)", *kindPtr)
-		return
 	}
 
 	timeTaken := time.Since(starting_time)
