@@ -11,7 +11,7 @@ services:
     volumes:
       - ./cmd/migrate/migrations:/migrations
     entrypoint: ["/bin/sh", "-c"]
-    command: ["migrate -path /migrations -database $DB_ADDR up"]
+    command: ["migrate -path /migrations -database \"$$DB_ADDR\" up"]
     restart: on-failure
 
   api:
