@@ -2,9 +2,9 @@ package portal
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/farxc/envelopa-transparencia/internal/domain/model"
+	"github.com/farxc/envelopa-transparencia/internal/domain/service"
 	"github.com/farxc/envelopa-transparencia/internal/utils"
 	"github.com/go-gota/gota/dataframe"
 )
@@ -265,33 +265,30 @@ func DfRowToLiquidationImpactedCommitment(df dataframe.DataFrame, rowIdx int) (m
 	}, nil
 }
 
-func parsePercentField(df dataframe.DataFrame, rowIdx int, column string) (float64, error) {
-	raw := strings.TrimSuffix(utils.GetStr(column, rowIdx, &df), "%")
-	value, err := utils.ParseFloat(strings.TrimSpace(raw))
-	if err != nil {
-		return 0, fmt.Errorf("row=%d column=%q: %w", rowIdx, column, err)
-	}
-	return value, nil
-}
-
 func DfRowToExpenseBudget(df dataframe.DataFrame, rowIdx int) (model.ExpenseBudget, error) {
-	initialBudget, err := parseFloatField(df, rowIdx, "ORÇAMENTO INICIAL (R$)")
+	actionCode := utils.GetStr("CÓDIGO AÇÃO", rowIdx, &df)
+	elementCode := utils.GetInt64("CÓDIGO ELEMENTO DE DESPESA", rowIdx, &df)
+	money := func(column string) (float64, error) {
+		value, err := parseFloatField(df, rowIdx, column)
+		if err != nil {
+			return 0, fmt.Errorf("%w (action=%s element=%d)", err, actionCode, elementCode)
+		}
+		return value, nil
+	}
+
+	initialBudget, err := money("ORÇAMENTO INICIAL (R$)")
 	if err != nil {
 		return model.ExpenseBudget{}, err
 	}
-	updatedBudget, err := parseFloatField(df, rowIdx, "ORÇAMENTO ATUALIZADO (R$)")
+	updatedBudget, err := money("ORÇAMENTO ATUALIZADO (R$)")
 	if err != nil {
 		return model.ExpenseBudget{}, err
 	}
-	committedBudget, err := parseFloatField(df, rowIdx, "ORÇAMENTO EMPENHADO (R$)")
+	committedBudget, err := money("ORÇAMENTO EMPENHADO (R$)")
 	if err != nil {
 		return model.ExpenseBudget{}, err
 	}
-	executedBudget, err := parseFloatField(df, rowIdx, "ORÇAMENTO REALIZADO (R$)")
-	if err != nil {
-		return model.ExpenseBudget{}, err
-	}
-	percentExecuted, err := parsePercentField(df, rowIdx, "% REALIZADO DO ORÇAMENTO (COM RELAÇÃO AO ORÇAMENTO ATUALIZADO)")
+	executedBudget, err := money("ORÇAMENTO REALIZADO (R$)")
 	if err != nil {
 		return model.ExpenseBudget{}, err
 	}
@@ -310,19 +307,21 @@ func DfRowToExpenseBudget(df dataframe.DataFrame, rowIdx int) (model.ExpenseBudg
 		SubfunctionName:       utils.GetStr("NOME SUBFUNÇÃO", rowIdx, &df),
 		BudgetProgramCode:     utils.GetStr("CÓDIGO PROGRAMA ORÇAMENTÁRIO", rowIdx, &df),
 		BudgetProgramName:     utils.GetStr("NOME PROGRAMA ORÇAMENTÁRIO", rowIdx, &df),
-		ActionCode:            utils.GetStr("CÓDIGO AÇÃO", rowIdx, &df),
+		ActionCode:            actionCode,
 		ActionName:            utils.GetStr("NOME AÇÃO", rowIdx, &df),
 		EconomicCategoryCode:  utils.GetInt64("CÓDIGO CATEGORIA ECONÔMICA", rowIdx, &df),
 		EconomicCategory:      utils.GetStr("NOME CATEGORIA ECONÔMICA", rowIdx, &df),
 		ExpenseGroupCode:      utils.GetInt16("CÓDIGO GRUPO DE DESPESA", rowIdx, &df),
 		ExpenseGroupName:      utils.GetStr("NOME GRUPO DE DESPESA", rowIdx, &df),
-		ExpenseElementCode:    utils.GetInt64("CÓDIGO ELEMENTO DE DESPESA", rowIdx, &df),
+		ExpenseElementCode:    elementCode,
 		ExpenseElementName:    utils.GetStr("NOME ELEMENTO DE DESPESA", rowIdx, &df),
 		InitialBudget:         initialBudget,
 		UpdatedBudget:         updatedBudget,
 		CommittedBudget:       committedBudget,
 		ExecutedBudget:        executedBudget,
-		PercentExecutedBudget: percentExecuted,
+		// Computed rather than read: the file's percentage column is sometimes
+		// blank or not a number, and a single bad row would fail the whole year.
+		PercentExecutedBudget: service.BudgetPercentExecuted(updatedBudget, executedBudget),
 	}, nil
 }
 
