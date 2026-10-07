@@ -3,6 +3,7 @@ package portal
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -103,15 +104,27 @@ func (c *transparencyPortalClient) ExtractBudget(cfg service.BudgetExtractionCon
 	}
 
 	rows := make([]model.ExpenseBudget, 0, filtered.Nrow())
+	rowsByAgency := make(map[string]int, len(cfg.Codes))
 	for i := 0; i < filtered.Nrow(); i++ {
 		row, err := DfRowToExpenseBudget(filtered, i)
 		if err != nil {
 			return nil, fmt.Errorf("failed to map budget row %d: %w", i, err)
 		}
 		rows = append(rows, row)
+		rowsByAgency[strconv.FormatInt(row.SubordinateAgencyCode, 10)]++
+	}
+	for _, code := range cfg.Codes {
+		if rowsByAgency[code] == 0 {
+			c.logger.Warn(component, "No budget rows for subordinate agency code: year=%s code=%s", cfg.Year, code)
+		}
 	}
 
-	return &service.BudgetPayload{Year: cfg.Year, Rows: rows}, nil
+	aggregated := service.AggregateBudgetRows(rows)
+	if merged := len(rows) - len(aggregated); merged > 0 {
+		c.logger.Info(component, "Budget rows sharing a key were summed: year=%s rows=%d merged=%d", cfg.Year, len(rows), merged)
+	}
+
+	return &service.BudgetPayload{Year: cfg.Year, Rows: aggregated}, nil
 }
 
 func (c *transparencyPortalClient) FetchExpensesData(date string) service.DownloadResult {
