@@ -13,7 +13,7 @@ ETL + REST API that crawls the Brazilian Transparency Portal (Portal da Transpar
 go run ./cmd/api
 
 # ETL via Make — one target per kind; INIT, END, CODES, BY_MANAGING_CODE,
-# CONCURRENCY, LOGLEVEL, TRIGGER, DEBUG, DOWNLOAD_LIMIT, DOWNLOAD_WINDOW are
+# CONCURRENCY, LOGLEVEL, TRIGGER, DEBUG, DOWNLOAD_INTERVAL are
 # optional and map to the flags below
 make etl-expenses INIT=2025-01-01 END=2025-01-31 CODES=26421,26415 BY_MANAGING_CODE=true CONCURRENCY=2
 make etl-expenses-execution INIT=2025-01-01 END=2025-12-31 CODES=26421,26415 BY_MANAGING_CODE=true
@@ -30,8 +30,7 @@ go run ./cmd/etl \
   -loglevel=info \             # debug, info, warn, error
   -trigger=MANUAL \            # MANUAL or SCHEDULED
   -debug=false \               # true = save filtered CSVs, bypass history checks
-  -downloadLimit=70 \          # max portal downloads per window (portal blocked at 82-103/5min)
-  -downloadWindow=5m1s         # sliding window for -downloadLimit; pause length after a block
+  -downloadInterval=20s        # min time between portal downloads (portal blocks above ~20/5min)
 
 # Migrations
 make migrate-up
@@ -169,6 +168,6 @@ go test ./internal/utils/ ./cmd/etl/ ./internal/infrastructure/client/portal/
 - **Tmp dirs**: ETL creates `tmp/zips/` and `tmp/data/` under the working directory at startup. Already-downloaded `expenses` and `budget` ZIPs are reused (checked via `os.Stat`).
 - **DB connection fails fast**: `db.New` pings the database and returns the error, so bad credentials surface at startup (`pq: password authentication failed`). If that happens on the host, `DB_ADDR` is missing or the password doesn't match the Postgres volume — `docker-compose.yml` uses `helloworld`, the prod compose uses `.env.production`; both publish port 5454.
 - **Compose `$$DB_ADDR`**: the `migrate` service command in `docker-compose.prod.yml` must use `$$DB_ADDR`. A single `$` is interpolated by Compose from the host `.env` (which points at `localhost`), not from the service's `env_file`.
-- **Portal rate limiting**: the download host `dadosabertos-download.cgu.gov.br` sits behind AWS WAF and answers with a CAPTCHA (`405` + `x-amzn-waf-action: captcha`) above roughly 80–100 requests per 5 minutes (observed blocks at 82 and 103), for every kind. `client/portal/download.go` handles it: a sliding-window limiter shared by all workers (`-downloadLimit`, default 70, per `-downloadWindow`, default 5m1s — exactly 5m was measured to be too short) gates every download, and a WAF block pauses all downloads for one window and retries the file in the client (max 3) instead of failing the job. All `Fetch*` methods must go through `download()`. Downloads are written to `<path>.part` and renamed, so a cached ZIP is never partial. Don't try to bypass the CAPTCHA.
-- **The download limit is per process, the portal's is per public IP**: the limiter is in memory, so concurrent ETL processes (two kinds in parallel, scheduled + manual, host + Docker, other machines on the same network) each get the full budget, and a process started right after another starts with an empty counter. Any of these can exceed the portal threshold and trigger the block. Run downloading ETLs one at a time, wait one window between heavy runs, or split `-downloadLimit` between processes. Nothing enforces this — if you add scheduling or parallel runs, add a cross-process limit (e.g. a DB-backed counter or advisory lock) first.
+- **Portal rate limiting**: the download host `dadosabertos-download.cgu.gov.br` sits behind AWS WAF and answers with a CAPTCHA (`405` + `x-amzn-waf-action: captcha`) above **~20 requests per 5 minutes**, for every kind. It reacts 25–60 s late, so fast bursts get 80–100+ requests through before the block — don't mistake that for the limit. Measured with evenly spaced requests on 2026-10-07 (blocked at #26 every 5 s, at #25 every 15 s). `client/portal/download.go` handles it: a `pacer` shared by all workers starts at most one download per `-downloadInterval` (default 20s = 15 per 5 min); a WAF block pauses all downloads for 5m1s, doubles the interval (max 2 min) and retries the file in the client (max 3) instead of failing the job. All `Fetch*` methods must go through `download()`. Downloads are written to `<path>.part` and renamed, so a cached ZIP is never partial. Don't try to bypass the CAPTCHA or exploit the reaction delay.
+- **The download pace is per process, the portal's limit is per public IP**: the pacer is in memory, so concurrent ETL processes (two kinds in parallel, scheduled + manual, host + Docker, other machines on the same network) each send 15 per 5 min, and a process started right after another ignores the previous run's recent requests. Any of these can exceed ~20/5min and trigger the block. Run downloading ETLs one at a time, wait 5 minutes between heavy runs, or give each concurrent process a proportionally longer `-downloadInterval`. Nothing enforces this — if you add scheduling or parallel runs, add a cross-process limit (e.g. a DB-backed counter or advisory lock) first.
 - **`expenses` vs `expenses_execution`** are entirely separate data sources with separate DB tables and separate pipelines — don't conflate them.
