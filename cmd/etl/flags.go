@@ -84,8 +84,8 @@ func parseFlags(args []string, now time.Time, output io.Writer) (etlFlags, error
 	kind := fs.String("kind", kindExpensesExecution, "kind of data to extract: "+strings.Join(validKinds, ", "))
 	initDate := fs.String("init", yesterday, "first date to extract, `YYYY-MM-DD`")
 	endDate := fs.String("end", yesterday, "last date to extract, inclusive, `YYYY-MM-DD`")
-	codes := fs.String("codes", joinCodes(defaultCodes), "comma-separated management unit (or management) `codes`")
-	byManagingCode := fs.Bool("byManagingCode", false, "match codes against \"Código Gestão\" instead of \"Código Unidade Gestora\" (ignored by budget)")
+	codes := fs.String("codes", joinCodes(defaultCodes), "comma-separated management unit (or management) `codes`; budget requires subordinate agency codes (e.g. 26421,26415)")
+	byManagingCode := fs.Bool("byManagingCode", false, "match codes against \"Código Gestão\" instead of \"Código Unidade Gestora\" (ignored by budget, which always matches \"CÓDIGO ÓRGÃO SUBORDINADO\")")
 	trigger := fs.String("trigger", triggerManual, "trigger recorded in the ingestion history: "+strings.Join(validTriggers, ", "))
 	logLevel := fs.String("loglevel", "info", "log `level`: debug, info, warn, error")
 	concurrency := fs.Int("concurrency", 10, "number of concurrent `workers`; keep it low for long ranges to avoid the portal's rate limit")
@@ -134,6 +134,8 @@ func parseFlags(args []string, now time.Time, output io.Writer) (etlFlags, error
 
 	if f.codes, err = parseCodes(*codes); err != nil {
 		errs = append(errs, err)
+	} else if f.kind == kindBudget {
+		errs = append(errs, validateBudgetCodes(fs, f.codes)...)
 	}
 	if !slices.Contains(validTriggers, f.trigger) {
 		errs = append(errs, fmt.Errorf("invalid -trigger %q: must be one of %s", *trigger, strings.Join(validTriggers, ", ")))
@@ -160,6 +162,28 @@ func parseFlags(args []string, now time.Time, output io.Writer) (etlFlags, error
 		return etlFlags{}, errors.Join(errs...)
 	}
 	return f, nil
+}
+
+// validateBudgetCodes checks the codes of a budget run. The budget file is
+// matched by "CÓDIGO ÓRGÃO SUBORDINADO", a 5-digit code; the default -codes are
+// management unit codes, which would match nothing and mark the year SKIPPED.
+func validateBudgetCodes(fs *flag.FlagSet, codes []int64) []error {
+	codesSet := false
+	fs.Visit(func(fl *flag.Flag) {
+		if fl.Name == "codes" {
+			codesSet = true
+		}
+	})
+	if !codesSet {
+		return []error{errors.New("-kind=budget requires -codes with subordinate agency codes (5 digits, e.g. -codes=26421,26415)")}
+	}
+	var errs []error
+	for _, c := range codes {
+		if c < 10000 || c > 99999 {
+			errs = append(errs, fmt.Errorf("-kind=budget filters by \"CÓDIGO ÓRGÃO SUBORDINADO\" (5 digits, e.g. 26421); got %d", c))
+		}
+	}
+	return errs
 }
 
 // parseCodes parses a comma-separated list of numeric codes, ignoring blanks.
