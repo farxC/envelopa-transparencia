@@ -29,8 +29,7 @@ migrate-down:
 #   TRIGGER=SCHEDULED        MANUAL | SCHEDULED            (default: MANUAL)
 #   DEBUG=true               save filtered CSVs and ignore ingestion history
 #   FORCE=true               reprocess jobs already SUCCESS/SKIPPED in the ingestion history
-#   DOWNLOAD_LIMIT=70        max portal downloads per DOWNLOAD_WINDOW (default: 70)
-#   DOWNLOAD_WINDOW=5m1s     sliding window for DOWNLOAD_LIMIT (default: 5m1s)
+#   DOWNLOAD_INTERVAL=30s    minimum time between portal downloads (default: 20s)
 #
 # Examples:
 #   make etl-expenses INIT=2025-01-01 END=2025-01-31 CODES=26421,26415 BY_MANAGING_CODE=true CONCURRENCY=2
@@ -46,8 +45,7 @@ ETL_FLAGS = $(if $(INIT),-init=$(INIT)) \
 	$(if $(TRIGGER),-trigger=$(TRIGGER)) \
 	$(if $(DEBUG),-debug=$(DEBUG)) \
 	$(if $(FORCE),-force=$(FORCE)) \
-	$(if $(DOWNLOAD_LIMIT),-downloadLimit=$(DOWNLOAD_LIMIT)) \
-	$(if $(DOWNLOAD_WINDOW),-downloadWindow=$(DOWNLOAD_WINDOW))
+	$(if $(DOWNLOAD_INTERVAL),-downloadInterval=$(DOWNLOAD_INTERVAL))
 
 # Daily commitments, liquidations and payments (one ZIP per day).
 .PHONY: etl-expenses

@@ -160,9 +160,9 @@ func main() {
 
 	transparency_portal_client := portal.NewTransparencyClient(appLogger, flags.debug, flags.download)
 
-	appLogger.Info(component, "Application started: kind=%s initDate=%s endDate=%s codes=%v byManagingCode=%t trigger=%s concurrency=%d downloadLimit=%d/%s logLevel=%s debug=%t force=%t",
+	appLogger.Info(component, "Application started: kind=%s initDate=%s endDate=%s codes=%v byManagingCode=%t trigger=%s concurrency=%d downloadInterval=%s logLevel=%s debug=%t force=%t",
 		flags.kind, flags.initDate.Format(time.DateOnly), flags.endDate.Format(time.DateOnly), flags.codes,
-		flags.byManagingCode, flags.trigger, flags.concurrency, flags.download.Limit, flags.download.Window, flags.logLevelName, flags.debug, flags.force)
+		flags.byManagingCode, flags.trigger, flags.concurrency, flags.download.Interval, flags.logLevelName, flags.debug, flags.force)
 	if flags.kind == kindBudget && flags.byManagingCode {
 		appLogger.Warn(component, "-byManagingCode is ignored by the budget kind")
 	}

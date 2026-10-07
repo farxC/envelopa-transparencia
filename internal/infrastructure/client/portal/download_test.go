@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -13,52 +14,73 @@ import (
 	"github.com/farxc/envelopa-transparencia/internal/infrastructure/logger"
 )
 
-func TestWindowLimiterAllowsLimitPerWindow(t *testing.T) {
-	const window = 300 * time.Millisecond
-	l := newWindowLimiter(3, window)
+func TestPacerSpacesDownloads(t *testing.T) {
+	const interval = 100 * time.Millisecond
+	p := newPacer(interval, time.Minute)
 
 	start := time.Now()
-	for range 3 {
-		l.Wait()
+	if waited := p.Wait(); waited > 20*time.Millisecond {
+		t.Fatalf("first download should start immediately, waited %s", waited)
 	}
-	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
-		t.Fatalf("first 3 calls should not wait, took %s", elapsed)
-	}
-
-	l.Wait()
-	if elapsed := time.Since(start); elapsed < window {
-		t.Fatalf("4th call should wait for the window to slide (%s), took %s", window, elapsed)
+	p.Wait()
+	p.Wait()
+	if elapsed := time.Since(start); elapsed < 2*interval {
+		t.Fatalf("3 downloads should take at least 2 intervals (%s), took %s", 2*interval, elapsed)
 	}
 }
 
-func TestWindowLimiterIsSharedAcrossGoroutines(t *testing.T) {
-	const window = 200 * time.Millisecond
-	l := newWindowLimiter(5, window)
+func TestPacerIsSharedAcrossGoroutines(t *testing.T) {
+	const interval = 50 * time.Millisecond
+	p := newPacer(interval, time.Minute)
 
-	var immediate int32
+	var mu sync.Mutex
+	var starts []time.Time
 	var wg sync.WaitGroup
-	for range 10 {
+	for range 5 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if l.Wait() < window/2 {
-				atomic.AddInt32(&immediate, 1)
-			}
+			p.Wait()
+			mu.Lock()
+			starts = append(starts, time.Now())
+			mu.Unlock()
 		}()
 	}
 	wg.Wait()
 
-	if immediate != 5 {
-		t.Fatalf("expected exactly 5 of 10 concurrent calls to pass without waiting, got %d", immediate)
+	slices.SortFunc(starts, func(a, b time.Time) int { return a.Compare(b) })
+	for i := 1; i < len(starts); i++ {
+		if gap := starts[i].Sub(starts[i-1]); gap < interval-5*time.Millisecond {
+			t.Errorf("starts %d and %d are only %s apart, want at least %s", i-1, i, gap, interval)
+		}
 	}
 }
 
-func TestWindowLimiterBlock(t *testing.T) {
-	l := newWindowLimiter(10, time.Minute)
-	l.Block(200 * time.Millisecond)
+func TestPacerBlockPausesAndDoublesInterval(t *testing.T) {
+	const interval, pause = 50 * time.Millisecond, 200 * time.Millisecond
+	p := newPacer(interval, pause)
+	p.Wait()
 
-	if waited := l.Wait(); waited < 200*time.Millisecond {
-		t.Fatalf("Wait should hold during a block, waited %s", waited)
+	newInterval, started := p.Block()
+	if !started || newInterval != 2*interval {
+		t.Fatalf("Block() = (%s, %t), want (%s, true)", newInterval, started, 2*interval)
+	}
+	if again, started := p.Block(); started || again != 2*interval {
+		t.Fatalf("second Block() during the pause = (%s, %t), want (%s, false)", again, started, 2*interval)
+	}
+
+	if waited := p.Wait(); waited < pause-10*time.Millisecond {
+		t.Fatalf("Wait should hold for the pause (%s), waited %s", pause, waited)
+	}
+	if waited := p.Wait(); waited < 2*interval-10*time.Millisecond {
+		t.Fatalf("after a block downloads should be %s apart, waited %s", 2*interval, waited)
+	}
+}
+
+func TestPacerIntervalIsCapped(t *testing.T) {
+	p := newPacer(maxInterval, 0)
+	if interval, _ := p.Block(); interval != maxInterval {
+		t.Fatalf("interval should be capped at %s, got %s", maxInterval, interval)
 	}
 }
 
@@ -82,14 +104,12 @@ func portalServer(t *testing.T, blockedRequests int, status int) (*httptest.Serv
 	return srv, &requests
 }
 
-func newTestClient(srv *httptest.Server, window time.Duration) *transparencyPortalClient {
-	opts := DownloadOptions{Limit: 100, Window: window}
+func newTestClient(srv *httptest.Server, pause time.Duration) *transparencyPortalClient {
 	return &transparencyPortalClient{
-		logger:       &logger.Logger{MinLevel: logger.LevelError + 1},
-		baseUrl:      srv.URL + "/",
-		client:       srv.Client(),
-		downloadOpts: opts,
-		limiter:      newWindowLimiter(opts.Limit, opts.Window),
+		logger:  &logger.Logger{MinLevel: logger.LevelError + 1},
+		baseUrl: srv.URL + "/",
+		client:  srv.Client(),
+		pacer:   newPacer(time.Millisecond, pause),
 	}
 }
 
@@ -115,9 +135,9 @@ func TestDownloadSuccess(t *testing.T) {
 }
 
 func TestDownloadRetriesAfterRateLimit(t *testing.T) {
-	const window = 100 * time.Millisecond
+	const pause = 100 * time.Millisecond
 	srv, requests := portalServer(t, 1, http.StatusOK)
-	c := newTestClient(srv, window)
+	c := newTestClient(srv, pause)
 	out := filepath.Join(t.TempDir(), "file.zip")
 
 	start := time.Now()
@@ -129,8 +149,8 @@ func TestDownloadRetriesAfterRateLimit(t *testing.T) {
 	if *requests != 2 {
 		t.Errorf("expected 2 requests (blocked + retry), got %d", *requests)
 	}
-	if elapsed := time.Since(start); elapsed < window {
-		t.Errorf("retry should wait for the pause (%s), took %s", window, elapsed)
+	if elapsed := time.Since(start); elapsed < pause {
+		t.Errorf("retry should wait for the pause (%s), took %s", pause, elapsed)
 	}
 }
 
