@@ -62,6 +62,38 @@ func TestParseFlags(t *testing.T) {
 			},
 		},
 		{
+			name: "budget with subordinate agency codes",
+			args: []string{"-kind=budget", "-init=2025-01-01", "-end=2026-12-31", "-codes=26421,26415"},
+			want: etlFlags{
+				kind:         kindBudget,
+				initDate:     time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+				endDate:      time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+				codes:        []int64{26421, 26415},
+				trigger:      triggerManual,
+				logLevel:     logger.LevelInfo,
+				logLevelName: "info",
+				concurrency:  10,
+				download:     portal.DefaultDownloadOptions(),
+			},
+		},
+		{name: "budget without codes", args: []string{"-kind=budget"}, wantErr: "-kind=budget requires -codes"},
+		{name: "budget with a management unit code", args: []string{"-kind=budget", "-codes=26421,158454"}, wantErr: `got 158454`},
+		{
+			name: "other kinds still take management unit codes",
+			args: []string{"-kind=expenses", "-codes=158454"},
+			want: etlFlags{
+				kind:         kindExpenses,
+				initDate:     yesterday,
+				endDate:      yesterday,
+				codes:        []int64{158454},
+				trigger:      triggerManual,
+				logLevel:     logger.LevelInfo,
+				logLevelName: "info",
+				concurrency:  10,
+				download:     portal.DefaultDownloadOptions(),
+			},
+		},
+		{
 			name: "values are case-insensitive and codes are trimmed",
 			args: []string{"-kind=BUDGET", "-trigger=manual", "-loglevel=WARN", "-codes= 26421 , 26415,"},
 			want: etlFlags{

@@ -119,3 +119,7 @@ func (p *ExpensesExecutionPipeline) HistoryRange(startDate, endDate time.Time) (
 }
 
 func (p *ExpensesExecutionPipeline) Kind() string { return "expenses_execution" }
+
+// AlwaysReload is true: the portal regenerates the monthly execution files
+// daily, so a month already loaded is loaded again on every run.
+func (p *ExpensesExecutionPipeline) AlwaysReload() bool { return true }

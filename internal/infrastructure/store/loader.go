@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/farxc/envelopa-transparencia/internal/domain/service"
@@ -147,18 +149,42 @@ func (s *storageLoader) LoadExpenseBudget(ctx context.Context, payload *service.
 	const component = "Loader"
 	s.logger.Info(component, "Starting expense budget load for year: %s", payload.Year)
 
+	exercise, err := strconv.Atoi(payload.Year)
+	if err != nil {
+		return fmt.Errorf("invalid budget year %q: %w", payload.Year, err)
+	}
+
+	// One transaction per year: the year's rows for the requested agencies are
+	// replaced as a whole, so a failure never leaves the year half loaded and
+	// rows that left the portal file do not linger.
+	tx, err := s.storage.DB.BeginTxx(ctx, nil)
+	if err != nil {
+		s.logger.Error(component, "Failed to start transaction: %v", err)
+		return err
+	}
+	defer tx.Rollback()
+	txStorage := s.storage.WithTx(tx)
+
+	if err := txStorage.ExpenseBudget.DeleteExpenseBudget(ctx, exercise, payload.AgencyCodes); err != nil {
+		s.logger.Error(component, "Failed to clear expense budget year=%s agencies=%v: %v", payload.Year, payload.AgencyCodes, err)
+		return err
+	}
+
 	now := time.Now()
 	for i := range payload.Rows {
 		row := payload.Rows[i]
 		row.InsertedAt = now
 		row.UpdatedAt = now
 
-		if err := s.storage.ExpenseBudget.InsertExpenseBudget(ctx, &row); err != nil {
-			s.logger.Error(component, "Failed to insert expense budget row year=%s action=%s: %v", payload.Year, row.ActionCode, err)
+		if err := txStorage.ExpenseBudget.InsertExpenseBudget(ctx, &row); err != nil {
+			s.logger.Error(component, "Failed to insert expense budget row year=%s action=%s element=%d: %v", payload.Year, row.ActionCode, row.ExpenseElementCode, err)
 			return err
 		}
 	}
 
+	if err := tx.Commit(); err != nil {
+		return err
+	}
 	s.logger.Info(component, "Expense budget load completed for year: %s rows=%d", payload.Year, len(payload.Rows))
 	return nil
 }

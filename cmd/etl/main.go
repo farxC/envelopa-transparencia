@@ -201,7 +201,7 @@ func main() {
 				IsManagingCode: isManagingCode,
 				Trigger:        flags.trigger,
 			}
-			if flags.debug || orch.ShouldProcess(pipeline.StatusKey(job), flags.force) {
+			if orch.ShouldRun(job, flags.debug, flags.force) {
 				orch.AddJob(job)
 			} else {
 				appLogger.Info(component, "Skipping date (already processed or active): date=%s", d.Format(time.DateOnly))
@@ -233,10 +233,10 @@ func main() {
 				IsManagingCode: isManagingCode,
 				Trigger:        flags.trigger,
 			}
-			if flags.debug || orch.ShouldProcess(pipeline.StatusKey(job), flags.force) {
+			if orch.ShouldRun(job, flags.debug, flags.force) {
 				orch.AddJob(job)
 			} else {
-				appLogger.Info(component, "Skipping month (already processed or active): month=%s-%s", job.Year, job.Month)
+				appLogger.Info(component, "Skipping month (in progress in another run): month=%s-%s", job.Year, job.Month)
 			}
 		}
 
@@ -263,10 +263,10 @@ func main() {
 				Codes:   codesArr,
 				Trigger: flags.trigger,
 			}
-			if flags.debug || orch.ShouldProcess(pipeline.StatusKey(job), flags.force) {
+			if orch.ShouldRun(job, flags.debug, flags.force) {
 				orch.AddJob(job)
 			} else {
-				appLogger.Info(component, "Skipping year (already processed or active): year=%s", job.Year)
+				appLogger.Info(component, "Skipping year (in progress in another run): year=%s", job.Year)
 			}
 		}
 
