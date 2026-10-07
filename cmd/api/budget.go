@@ -126,7 +126,7 @@ func parseBudgetFilter(r *http.Request) (service.BudgetFilter, error) {
 	}
 
 	var codes []int
-	for _, raw := range strings.Split(codesParam, ",") {
+	for raw := range strings.SplitSeq(codesParam, ",") {
 		code, err := strconv.Atoi(strings.TrimSpace(raw))
 		if err != nil {
 			return service.BudgetFilter{}, fmt.Errorf("invalid subordinate_agency_code %q: %w", raw, err)

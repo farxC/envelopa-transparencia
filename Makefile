@@ -28,6 +28,7 @@ migrate-down:
 #   LOGLEVEL=debug           debug | info | warn | error   (default: info)
 #   TRIGGER=SCHEDULED        MANUAL | SCHEDULED            (default: MANUAL)
 #   DEBUG=true               save filtered CSVs and ignore ingestion history
+#   FORCE=true               reprocess jobs already SUCCESS/SKIPPED in the ingestion history
 #   DOWNLOAD_INTERVAL=30s    minimum time between portal downloads (default: 20s)
 #
 # Examples:
@@ -43,6 +44,7 @@ ETL_FLAGS = $(if $(INIT),-init=$(INIT)) \
 	$(if $(LOGLEVEL),-loglevel=$(LOGLEVEL)) \
 	$(if $(TRIGGER),-trigger=$(TRIGGER)) \
 	$(if $(DEBUG),-debug=$(DEBUG)) \
+	$(if $(FORCE),-force=$(FORCE)) \
 	$(if $(DOWNLOAD_INTERVAL),-downloadInterval=$(DOWNLOAD_INTERVAL))
 
 # Daily commitments, liquidations and payments (one ZIP per day).

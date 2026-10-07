@@ -95,8 +95,21 @@ func (o *Orchestrator[J]) InitializeState(ctx context.Context, startDate, endDat
 	return nil
 }
 
+// ShouldRun reports whether job should be queued in this run. debug runs every
+// job; otherwise the ingestion history decides, treating the run as forced when
+// force is set or the pipeline always reloads.
+func (o *Orchestrator[J]) ShouldRun(job J, debug, force bool) bool {
+	if debug {
+		return true
+	}
+	return o.ShouldProcess(o.pipeline.StatusKey(job), force || o.pipeline.AlwaysReload())
+}
+
 // ShouldProcess reports whether the job identified by key needs to be processed.
-func (o *Orchestrator[J]) ShouldProcess(key string) bool {
+// With force, jobs that already finished (SUCCESS or SKIPPED) are processed
+// again; a job still IN_PROGRESS within the stale timeout never is, since
+// another process is likely running it.
+func (o *Orchestrator[J]) ShouldProcess(key string, force bool) bool {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 
@@ -108,7 +121,7 @@ func (o *Orchestrator[J]) ShouldProcess(key string) bool {
 	case statusInProgress:
 		return time.Since(h.ProcessedAt) > o.staleTimeout
 	case statusSkipped, statusSuccess:
-		return false
+		return force
 	default:
 		return true
 	}

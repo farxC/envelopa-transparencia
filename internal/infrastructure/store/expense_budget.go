@@ -108,6 +108,15 @@ func (s *ExpenseBudgetStore) InsertExpenseBudget(ctx context.Context, b *model.E
 	return err
 }
 
+// DeleteExpenseBudget removes the rows of an exercise for the given
+// subordinate agencies, so a reload drops rows that left the portal file.
+func (s *ExpenseBudgetStore) DeleteExpenseBudget(ctx context.Context, exercise int, agencyCodes []int64) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM expense_budget WHERE exercise = $1 AND subordinate_agency_code = ANY($2)`,
+		exercise, pq.Array(agencyCodes))
+	return err
+}
+
 func (s *ExpenseBudgetStore) GetExpenseBudget(ctx context.Context, filter service.BudgetFilter) ([]service.BudgetRow, error) {
 	whereClause := "WHERE subordinate_agency_code = ANY($1)"
 	args := []interface{}{pq.Array(filter.SubordinateAgencyCodes)}

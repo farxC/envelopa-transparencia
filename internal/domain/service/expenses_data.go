@@ -64,12 +64,11 @@ type OutputExpensesExtractionFiles struct {
 }
 
 type UnitsExpenses struct {
-	UgCode                     string                            `json:"ug_code"`
-	UgName                     string                            `json:"ug_name"`
-	Commitments                []model.Commitment                `json:"commitments"`
-	Liquidations               []model.Liquidation               `json:"liquidations"`
-	Payments                   []model.Payment                   `json:"payments"`
-	PaymentImpactedCommitments []model.PaymentImpactedCommitment `json:"payment_impacted_commitments"`
+	UgCode       string              `json:"ug_code"`
+	UgName       string              `json:"ug_name"`
+	Commitments  []model.Commitment  `json:"commitments"`
+	Liquidations []model.Liquidation `json:"liquidations"`
+	Payments     []model.Payment     `json:"payments"`
 }
 
 type ExpensesPayload struct {

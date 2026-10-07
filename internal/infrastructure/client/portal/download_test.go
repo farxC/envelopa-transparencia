@@ -36,7 +36,7 @@ func TestPacerIsSharedAcrossGoroutines(t *testing.T) {
 	var mu sync.Mutex
 	var starts []time.Time
 	var wg sync.WaitGroup
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

@@ -13,7 +13,7 @@ ETL + REST API that crawls the Brazilian Transparency Portal (Portal da Transpar
 go run ./cmd/api
 
 # ETL via Make — one target per kind; INIT, END, CODES, BY_MANAGING_CODE,
-# CONCURRENCY, LOGLEVEL, TRIGGER, DEBUG, DOWNLOAD_INTERVAL are
+# CONCURRENCY, LOGLEVEL, TRIGGER, DEBUG, FORCE, DOWNLOAD_INTERVAL are
 # optional and map to the flags below
 make etl-expenses INIT=2025-01-01 END=2025-01-31 CODES=26421,26415 BY_MANAGING_CODE=true CONCURRENCY=2
 make etl-expenses-execution INIT=2025-01-01 END=2025-12-31 CODES=26421,26415 BY_MANAGING_CODE=true
@@ -30,6 +30,7 @@ go run ./cmd/etl \
   -loglevel=info \             # debug, info, warn, error
   -trigger=MANUAL \            # MANUAL or SCHEDULED
   -debug=false \               # true = save filtered CSVs, bypass history checks
+  -force=false \               # true = reprocess SUCCESS/SKIPPED jobs (not fresh IN_PROGRESS), reusing cached ZIPs
   -downloadInterval=20s        # min time between portal downloads (portal blocks above ~20/5min)
 
 # Migrations
@@ -85,7 +86,7 @@ internal/utils/
 | `expenses_execution` | Per month | `despesas-execucao/YYYYMM` | Monthly aggregated budget execution rows |
 | `budget` | Per year | `orcamento-despesa/YYYY` | Yearly expense budget (ignores `-byManagingCode`) |
 
-Downloaded ZIPs are cached in `tmp/zips/<kind>/`; `expenses` and `budget` reuse a cached ZIP, `expenses_execution` always re-downloads.
+Downloaded ZIPs are cached in `tmp/zips/<kind>/`; `expenses` reuses a cached ZIP, `expenses_execution` and `budget` always re-download.
 
 ### ETL Pipeline Steps (all kinds follow the same contract)
 
@@ -164,8 +165,13 @@ go test ./internal/utils/ ./cmd/etl/ ./internal/infrastructure/client/portal/
 - **pt-BR float format**: `utils/parser.go:ParseFloat` handles both `1.234,56` and `1234.56` — always use this, never `strconv.ParseFloat` directly on portal data.
 - **Idempotency relies on**: (a) unique DB constraints on `commitment_code`, `payment_code`, `liquidation_code`; (b) orchestrator status map from `IngestionHistory`. The ETL is safe to re-run.
 - **ETL flags are validated up front** (`cmd/etl/flags.go:parseFlags`), before the DB connection: unknown `-kind`/`-trigger`/`-loglevel`, malformed dates, `-end` before `-init`, non-numeric codes and `-concurrency < 1` all exit with code 2 and list every problem. `-kind`, `-trigger` and `-loglevel` are case-insensitive; blank entries in `-codes` are ignored. Add new flags there (with a test case), not in `main.go`.
+- **Payment → commitment links** (`payment_impacted_commitments`) are matched by `Código Pagamento` of the day's payments and attached to `Payment.ImpactedCommitments`, like liquidations. Never match them by the day's commitments: a payment almost always settles a commitment issued on an earlier day, so that drops ~96% of the links.
+- **`budget` codes are subordinate agency codes** (`CÓDIGO ÓRGÃO SUBORDINADO`, 5 digits: 26421 IFRO, 26415 IFMS), not management unit codes. `parseFlags` requires an explicit `-codes` for `-kind=budget` and rejects other lengths — the default unit codes would match nothing and mark the year `SKIPPED`. The budget file has no management unit, so there is no per-campus budget.
+- **`budget` load**: rows sharing the `expense_budget` key are summed (`service.AggregateBudgetRows`), `percent_executed_budget` is computed (`service.BudgetPercentExecuted`), not parsed, and each year is loaded in one transaction that first deletes that year's rows for the requested agencies. The portal regenerates the yearly file daily, so every budget run downloads it again (never the cached ZIP; a failed download fails the job).
+- **Reload policy** (`Pipeline.AlwaysReload`, used by `Orchestrator.ShouldRun`): `budget` and `expenses_execution` files are regenerated daily by the portal, so those kinds reload every year/month in `-init`..`-end` on every run, even if the ingestion history says `SUCCESS`/`SKIPPED` — only a job `IN_PROGRESS` in another run is skipped. Each run costs one download per year/month in range. `expenses` (daily files don't change) skips finished days unless `-force`.
+- **`-force=true`**: reprocesses days/months/years already marked `SUCCESS`/`SKIPPED`, skipping only jobs `IN_PROGRESS` within the 30-minute stale timeout. Cached ZIPs are reused, but days without a cached ZIP are still downloaded — check `tmp/zips/<kind>/` first if the portal budget matters.
 - **`-debug=true`**: saves filtered DataFrames to CSV and bypasses `IngestionHistory` checks — useful for investigating raw portal data without polluting the history table.
-- **Tmp dirs**: ETL creates `tmp/zips/` and `tmp/data/` under the working directory at startup. Already-downloaded `expenses` and `budget` ZIPs are reused (checked via `os.Stat`).
+- **Tmp dirs**: ETL creates `tmp/zips/` and `tmp/data/` under the working directory at startup. Already-downloaded `expenses` ZIPs are reused (checked via `os.Stat`); `budget` is always downloaded again, since the portal regenerates the yearly file daily.
 - **DB connection fails fast**: `db.New` pings the database and returns the error, so bad credentials surface at startup (`pq: password authentication failed`). If that happens on the host, `DB_ADDR` is missing or the password doesn't match the Postgres volume — `docker-compose.yml` uses `helloworld`, the prod compose uses `.env.production`; both publish port 5454.
 - **Compose `$$DB_ADDR`**: the `migrate` service command in `docker-compose.prod.yml` must use `$$DB_ADDR`. A single `$` is interpolated by Compose from the host `.env` (which points at `localhost`), not from the service's `env_file`.
 - **Portal rate limiting**: the download host `dadosabertos-download.cgu.gov.br` sits behind AWS WAF and answers with a CAPTCHA (`405` + `x-amzn-waf-action: captcha`) above **~20 requests per 5 minutes**, for every kind. It reacts 25–60 s late, so fast bursts get 80–100+ requests through before the block — don't mistake that for the limit. Measured with evenly spaced requests on 2026-10-07 (blocked at #26 every 5 s, at #25 every 15 s). `client/portal/download.go` handles it: a `pacer` shared by all workers starts at most one download per `-downloadInterval` (default 20s = 15 per 5 min); a WAF block pauses all downloads for 5m1s, doubles the interval (max 2 min) and retries the file in the client (max 3) instead of failing the job. All `Fetch*` methods must go through `download()`. Downloads are written to `<path>.part` and renamed, so a cached ZIP is never partial. Don't try to bypass the CAPTCHA or exploit the reaction delay.

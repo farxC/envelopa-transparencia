@@ -3,6 +3,7 @@ package portal
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -101,15 +102,36 @@ func (c *transparencyPortalClient) ExtractBudget(cfg service.BudgetExtractionCon
 	}
 
 	rows := make([]model.ExpenseBudget, 0, filtered.Nrow())
+	rowsByAgency := make(map[string]int, len(cfg.Codes))
 	for i := 0; i < filtered.Nrow(); i++ {
 		row, err := DfRowToExpenseBudget(filtered, i)
 		if err != nil {
 			return nil, fmt.Errorf("failed to map budget row %d: %w", i, err)
 		}
 		rows = append(rows, row)
+		rowsByAgency[strconv.FormatInt(row.SubordinateAgencyCode, 10)]++
+	}
+	for _, code := range cfg.Codes {
+		if rowsByAgency[code] == 0 {
+			c.logger.Warn(component, "No budget rows for subordinate agency code: year=%s code=%s", cfg.Year, code)
+		}
 	}
 
-	return &service.BudgetPayload{Year: cfg.Year, Rows: rows}, nil
+	aggregated := service.AggregateBudgetRows(rows)
+	if merged := len(rows) - len(aggregated); merged > 0 {
+		c.logger.Info(component, "Budget rows sharing a key were summed: year=%s rows=%d merged=%d", cfg.Year, len(rows), merged)
+	}
+
+	agencyCodes := make([]int64, 0, len(cfg.Codes))
+	for _, code := range cfg.Codes {
+		n, err := strconv.ParseInt(code, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid subordinate agency code %q: %w", code, err)
+		}
+		agencyCodes = append(agencyCodes, n)
+	}
+
+	return &service.BudgetPayload{Year: cfg.Year, AgencyCodes: agencyCodes, Rows: aggregated}, nil
 }
 
 func (c *transparencyPortalClient) FetchExpensesData(date string) service.DownloadResult {
@@ -213,21 +235,20 @@ func (c *transparencyPortalClient) ExtractExpenses(cfg service.ExpensesExtractio
 
 	// Extract impacted commitments for payments
 	var paImpacts []model.PaymentImpactedCommitment
-	if empenhosDf.Nrow() > 0 {
-		ugsCommitments := empenhosDf.Col("Código Empenho").Records()
+	if pagamentosDf.Nrow() > 0 {
 		if p, ok := cfg.Extraction.Files[service.DespesasPagamentoEmpenhosImpactados]; ok {
 			df, err := filesystem.OpenFileAndDecode(p)
 			if err != nil {
 				return nil, err
 			}
 
-			matchedDf := FindRowsSync(df, service.DespesasPagamentoEmpenhosImpactados, ugsCommitments, "Código Empenho", c.debug)
+			matchedDf := matchPaymentImpacts(df, pagamentosDf, c.debug)
 			if matchedDf.Error() != nil {
 				return nil, fmt.Errorf("failed to filter payment impacted commitments: %w", matchedDf.Error())
 			}
-			c.logger.Info(component, "Payment impacts matched: date=%s commitments=%d impactedRows=%d", extractionDate, len(ugsCommitments), matchedDf.Nrow())
+			c.logger.Info(component, "Payment impacts matched: date=%s payments=%d impactedRows=%d", extractionDate, pagamentosDf.Nrow(), matchedDf.Nrow())
 			if matchedDf.Nrow() == 0 {
-				c.logger.Warn(component, "No impacted commitments matched for payment commitments: date=%s commitments=%d", extractionDate, len(ugsCommitments))
+				c.logger.Warn(component, "No impacted commitments matched for payments: date=%s payments=%d", extractionDate, pagamentosDf.Nrow())
 			}
 			for i := 0; i < matchedDf.Nrow(); i++ {
 				imp, err := DfRowToPaymentImpactedCommitment(matchedDf, i)
@@ -337,4 +358,16 @@ func (c *transparencyPortalClient) ExtractExpenses(cfg service.ExpensesExtractio
 
 	c.logger.Info(component, "Extraction completed: date=%s unitsProcessed=%d", extractionDate, len(payload.UnitsExpenses))
 	return payload, nil
+}
+
+// matchPaymentImpacts keeps the rows of the "EmpenhosImpactados" payment file
+// that belong to the given payments. It matches by payment code, not by
+// commitment code: a payment usually settles a commitment issued on an earlier
+// day (often in an earlier year), so the commitment is not among the day's.
+func matchPaymentImpacts(impacts, payments dataframe.DataFrame, debug bool) dataframe.DataFrame {
+	if payments.Nrow() == 0 {
+		return dataframe.DataFrame{}
+	}
+	paymentCodes := payments.Col("Código Pagamento").Records()
+	return FindRowsSync(impacts, service.DespesasPagamentoEmpenhosImpactados, paymentCodes, "Código Pagamento", debug)
 }

@@ -71,7 +71,7 @@ func parseExpensesFilter(r *http.Request) (service.ExpensesFilter, error) {
 	codesParam := r.URL.Query().Get("management_unit_codes")
 	if codesParam != "" {
 		req.ManagementUnitCodes = make([]int, 0)
-		for _, code := range strings.Split(codesParam, ",") {
+		for code := range strings.SplitSeq(codesParam, ",") {
 			codeInt, err := strconv.Atoi(code)
 			if err != nil {
 				return service.ExpensesFilter{}, fmt.Errorf("invalid management_unit_code: %w", err)

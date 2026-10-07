@@ -16,7 +16,10 @@ type BudgetExtractionConfig struct {
 
 type BudgetPayload struct {
 	Year string
-	Rows []model.ExpenseBudget
+	// AgencyCodes are the requested subordinate agency codes. The load replaces
+	// every row of Year for these agencies, including ones that left the file.
+	AgencyCodes []int64
+	Rows        []model.ExpenseBudget
 }
 
 type BudgetFilter struct {
