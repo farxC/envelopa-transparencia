@@ -14,24 +14,22 @@ import (
 )
 
 type transparencyPortalClient struct {
-	logger       *logger.Logger
-	baseUrl      string
-	client       *http.Client
-	debug        bool
-	downloadOpts DownloadOptions
-	limiter      *windowLimiter
+	logger  *logger.Logger
+	baseUrl string
+	client  *http.Client
+	debug   bool
+	pacer   *pacer
 }
 
 var PortalTransparenciaURL = "https://portaldatransparencia.gov.br/download-de-dados/"
 
 func NewTransparencyClient(logger *logger.Logger, debug bool, downloadOpts DownloadOptions) service.TransparencyPortalClient {
 	return &transparencyPortalClient{
-		logger:       logger,
-		baseUrl:      PortalTransparenciaURL,
-		client:       &http.Client{},
-		debug:        debug,
-		downloadOpts: downloadOpts,
-		limiter:      newWindowLimiter(downloadOpts.Limit, downloadOpts.Window),
+		logger:  logger,
+		baseUrl: PortalTransparenciaURL,
+		client:  &http.Client{},
+		debug:   debug,
+		pacer:   newPacer(downloadOpts.Interval, blockPause),
 	}
 }
 

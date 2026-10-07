@@ -87,8 +87,7 @@ func parseFlags(args []string, now time.Time, output io.Writer) (etlFlags, error
 	concurrency := fs.Int("concurrency", 10, "number of concurrent `workers`; keep it low for long ranges to avoid the portal's rate limit")
 	debug := fs.Bool("debug", false, "save matched dataframes to CSV and bypass ingestion history checks")
 	defaultDownload := portal.DefaultDownloadOptions()
-	downloadLimit := fs.Int("downloadLimit", defaultDownload.Limit, "maximum portal downloads per -downloadWindow, for this process only; the portal blocks above roughly 80-100 per 5 minutes per IP, so split it between ETL runs that download at the same time")
-	downloadWindow := fs.Duration("downloadWindow", defaultDownload.Window, "sliding window for -downloadLimit, and how long downloads pause when the portal blocks them")
+	downloadInterval := fs.Duration("downloadInterval", defaultDownload.Interval, "minimum time between portal downloads, for this process only; the portal blocks above ~20 requests per 5 minutes per IP, so give each ETL run that downloads at the same time a proportionally longer interval")
 
 	if err := fs.Parse(args); err != nil {
 		return etlFlags{}, err
@@ -101,7 +100,7 @@ func parseFlags(args []string, now time.Time, output io.Writer) (etlFlags, error
 		logLevelName:   strings.ToLower(strings.TrimSpace(*logLevel)),
 		concurrency:    *concurrency,
 		debug:          *debug,
-		download:       portal.DownloadOptions{Limit: *downloadLimit, Window: *downloadWindow},
+		download:       portal.DownloadOptions{Interval: *downloadInterval},
 	}
 
 	var errs []error
@@ -143,11 +142,8 @@ func parseFlags(args []string, now time.Time, output io.Writer) (etlFlags, error
 		errs = append(errs, fmt.Errorf("-concurrency must be at least 1, got %d", f.concurrency))
 	}
 
-	if f.download.Limit < 1 {
-		errs = append(errs, fmt.Errorf("-downloadLimit must be at least 1, got %d", f.download.Limit))
-	}
-	if f.download.Window <= 0 {
-		errs = append(errs, fmt.Errorf("-downloadWindow must be positive, got %s", f.download.Window))
+	if f.download.Interval <= 0 {
+		errs = append(errs, fmt.Errorf("-downloadInterval must be positive, got %s", f.download.Interval))
 	}
 
 	if len(errs) > 0 {

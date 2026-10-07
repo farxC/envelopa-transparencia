@@ -44,7 +44,7 @@ func TestParseFlags(t *testing.T) {
 				"-kind=expenses", "-init=2025-01-01", "-end=2025-01-31",
 				"-codes=26421,26415", "-byManagingCode=true", "-trigger=SCHEDULED",
 				"-loglevel=debug", "-concurrency=2", "-debug=true",
-				"-downloadLimit=50", "-downloadWindow=2m",
+				"-downloadInterval=30s",
 			},
 			want: etlFlags{
 				kind:           kindExpenses,
@@ -57,7 +57,7 @@ func TestParseFlags(t *testing.T) {
 				logLevelName:   "debug",
 				concurrency:    2,
 				debug:          true,
-				download:       portal.DownloadOptions{Limit: 50, Window: 2 * time.Minute},
+				download:       portal.DownloadOptions{Interval: 30 * time.Second},
 			},
 		},
 		{
@@ -84,9 +84,10 @@ func TestParseFlags(t *testing.T) {
 		{name: "unknown trigger", args: []string{"-trigger=CRON"}, wantErr: `invalid -trigger "CRON"`},
 		{name: "unknown log level", args: []string{"-loglevel=verbose"}, wantErr: `invalid -loglevel "verbose"`},
 		{name: "zero concurrency", args: []string{"-concurrency=0"}, wantErr: "-concurrency must be at least 1, got 0"},
-		{name: "zero download limit", args: []string{"-downloadLimit=0"}, wantErr: "-downloadLimit must be at least 1, got 0"},
-		{name: "zero download window", args: []string{"-downloadWindow=0s"}, wantErr: "-downloadWindow must be positive, got 0s"},
-		{name: "bad download window", args: []string{"-downloadWindow=5"}, wantErr: `invalid value "5" for flag -downloadWindow`},
+		{name: "zero download interval", args: []string{"-downloadInterval=0s"}, wantErr: "-downloadInterval must be positive, got 0s"},
+		{name: "negative download interval", args: []string{"-downloadInterval=-5s"}, wantErr: "-downloadInterval must be positive, got -5s"},
+		{name: "download interval without unit", args: []string{"-downloadInterval=20"}, wantErr: `invalid value "20" for flag -downloadInterval`},
+		{name: "removed downloadLimit flag", args: []string{"-downloadLimit=70"}, wantErr: "flag provided but not defined: -downloadLimit"},
 		{name: "unknown flag", args: []string{"-foo"}, wantErr: "flag provided but not defined: -foo"},
 		{name: "positional argument", args: []string{"expenses"}, wantErr: `unexpected argument "expenses"`},
 		{
