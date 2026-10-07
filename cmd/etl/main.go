@@ -236,7 +236,7 @@ func main() {
 			if orch.ShouldRun(job, flags.debug, flags.force) {
 				orch.AddJob(job)
 			} else {
-				appLogger.Info(component, "Skipping month (already processed or active): month=%s-%s", job.Year, job.Month)
+				appLogger.Info(component, "Skipping month (in progress in another run): month=%s-%s", job.Year, job.Month)
 			}
 		}
 

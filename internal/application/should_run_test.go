@@ -57,8 +57,9 @@ var skipFinishedCases = []runCase{
 	{statusInProgress, true, false, true},
 }
 
-// Expected decisions for budget, whose file changes daily: finished years run
-// again even without -force; a year in progress in another run is still skipped.
+// Expected decisions for kinds whose files change daily (budget, expenses
+// execution): finished jobs run again even without -force; a job in progress
+// in another run is still skipped.
 var alwaysReloadCases = []runCase{
 	{"", false, false, true},
 	{statusSuccess, false, false, true},
@@ -115,7 +116,7 @@ func TestShouldRun_ExpensesExecution(t *testing.T) {
 			refs[s] = m
 		}
 	}
-	checkShouldRun[model.ExpensesExecutionJob](t, NewExpensesExecutionPipeline(nil, nil, quietLogger), skipFinishedCases, jobs, refs)
+	checkShouldRun[model.ExpensesExecutionJob](t, NewExpensesExecutionPipeline(nil, nil, quietLogger), alwaysReloadCases, jobs, refs)
 }
 
 func TestShouldRun_Budget(t *testing.T) {
