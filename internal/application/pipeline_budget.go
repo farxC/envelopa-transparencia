@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -37,18 +36,17 @@ func NewBudgetPipeline(
 }
 
 func (p *BudgetPipeline) Execute(ctx context.Context, job model.BudgetJob) error {
-	// 1. Download if not already present
-	zipPath := "tmp/zips/budget/" + job.Year + "_OrcamentoDespesa.zip"
-	if _, err := os.Stat(zipPath); os.IsNotExist(err) {
-		download := p.client.FetchBudget(job.Year)
-		if !download.Success {
-			return fmt.Errorf("download failed for year %s", job.Year)
-		}
+	// 1. Download. The portal regenerates the yearly file every day, so a
+	// cached ZIP is never reused; a failed download fails the job instead of
+	// loading stale data.
+	download := p.client.FetchBudget(job.Year)
+	if !download.Success {
+		return fmt.Errorf("download failed for year %s", job.Year)
 	}
 
 	// 2. Unzip
 	outputDir := "tmp/data/budget_" + job.Year
-	extraction := filesystem.UnzipFile(zipPath, outputDir, p.appLogger)
+	extraction := filesystem.UnzipFile(download.OutputPath, outputDir, p.appLogger)
 	if !extraction.Success {
 		return fmt.Errorf("extraction failed for year %s", job.Year)
 	}
