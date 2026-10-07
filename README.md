@@ -193,7 +193,7 @@ go run ./cmd/etl -kind=expenses -init=2025-01-01 -end=2025-01-31 -byManagingCode
 
 Run `go run ./cmd/etl -h` to see every flag with examples. Flags are validated before anything else runs: an unknown kind, a malformed date, `END` before `INIT`, a non-numeric code or `CONCURRENCY` below 1 stops the ETL immediately with a message listing every problem. `-kind`, `-trigger` and `-loglevel` are case-insensitive.
 
-The ETL is idempotent: already-processed dates are skipped using the ingestion history, and `expenses`/`budget` ZIPs already in `tmp/zips/` are reused instead of downloaded again.
+The ETL is idempotent: already-processed dates are skipped using the ingestion history, and `expenses` ZIPs already in `tmp/zips/` are reused instead of downloaded again. `expenses_execution` and `budget` files are always downloaded again, since the portal updates them in place.
 
 #### Portal rate limiting
 
