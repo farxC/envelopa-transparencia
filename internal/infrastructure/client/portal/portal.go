@@ -124,7 +124,16 @@ func (c *transparencyPortalClient) ExtractBudget(cfg service.BudgetExtractionCon
 		c.logger.Info(component, "Budget rows sharing a key were summed: year=%s rows=%d merged=%d", cfg.Year, len(rows), merged)
 	}
 
-	return &service.BudgetPayload{Year: cfg.Year, Rows: aggregated}, nil
+	agencyCodes := make([]int64, 0, len(cfg.Codes))
+	for _, code := range cfg.Codes {
+		n, err := strconv.ParseInt(code, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid subordinate agency code %q: %w", code, err)
+		}
+		agencyCodes = append(agencyCodes, n)
+	}
+
+	return &service.BudgetPayload{Year: cfg.Year, AgencyCodes: agencyCodes, Rows: aggregated}, nil
 }
 
 func (c *transparencyPortalClient) FetchExpensesData(date string) service.DownloadResult {
