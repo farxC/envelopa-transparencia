@@ -30,6 +30,11 @@ type Pipeline[J any] interface {
 
 	HistoryRange(startDate, endDate time.Time) (time.Time, time.Time)
 
+	// AlwaysReload reports whether jobs already recorded as SUCCESS or
+	// SKIPPED run again on every run, as with -force. True when the source file
+	// keeps changing after it was first loaded.
+	AlwaysReload() bool
+
 	// Kind returns the pipeline identifier used to segregate IngestionHistory records.
 	Kind() string
 }

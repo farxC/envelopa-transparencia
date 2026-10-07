@@ -119,3 +119,5 @@ func (p *ExpensesExecutionPipeline) HistoryRange(startDate, endDate time.Time) (
 }
 
 func (p *ExpensesExecutionPipeline) Kind() string { return "expenses_execution" }
+
+func (p *ExpensesExecutionPipeline) AlwaysReload() bool { return false }

@@ -201,7 +201,7 @@ func main() {
 				IsManagingCode: isManagingCode,
 				Trigger:        flags.trigger,
 			}
-			if flags.debug || orch.ShouldProcess(pipeline.StatusKey(job), flags.force) {
+			if orch.ShouldRun(job, flags.debug, flags.force) {
 				orch.AddJob(job)
 			} else {
 				appLogger.Info(component, "Skipping date (already processed or active): date=%s", d.Format(time.DateOnly))
@@ -233,7 +233,7 @@ func main() {
 				IsManagingCode: isManagingCode,
 				Trigger:        flags.trigger,
 			}
-			if flags.debug || orch.ShouldProcess(pipeline.StatusKey(job), flags.force) {
+			if orch.ShouldRun(job, flags.debug, flags.force) {
 				orch.AddJob(job)
 			} else {
 				appLogger.Info(component, "Skipping month (already processed or active): month=%s-%s", job.Year, job.Month)
@@ -263,9 +263,7 @@ func main() {
 				Codes:   codesArr,
 				Trigger: flags.trigger,
 			}
-			// The yearly budget file changes daily, so a year already loaded is
-			// loaded again (as with -force); only a year still in progress is skipped.
-			if flags.debug || orch.ShouldProcess(pipeline.StatusKey(job), true) {
+			if orch.ShouldRun(job, flags.debug, flags.force) {
 				orch.AddJob(job)
 			} else {
 				appLogger.Info(component, "Skipping year (in progress in another run): year=%s", job.Year)

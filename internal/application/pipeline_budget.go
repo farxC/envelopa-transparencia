@@ -107,3 +107,7 @@ func (p *BudgetPipeline) HistoryRange(startDate, endDate time.Time) (time.Time, 
 }
 
 func (p *BudgetPipeline) Kind() string { return "budget" }
+
+// AlwaysReload is true: the portal regenerates the yearly budget file
+// daily, so a year already loaded is loaded again on every run.
+func (p *BudgetPipeline) AlwaysReload() bool { return true }
